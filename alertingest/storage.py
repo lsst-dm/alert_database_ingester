@@ -33,7 +33,7 @@ class AlertDatabaseBackend(abc.ABC):
         raise NotImplementedError()
 
     @abc.abstractmethod
-    def get_schema(self, schema_id: str, encoded_schema: bytes):
+    def store_schema(self, schema_id: str, encoded_schema: bytes):
         """
         Store a single alert schema JSON document in its JSON-serialized form.
 

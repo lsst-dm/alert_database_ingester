@@ -1,10 +1,10 @@
 import asyncio
 import argparse
-
+import os
 from aiokafka import AIOKafkaConsumer
 
-from alertingest.ingester import IngestWorker
-from alertingest.storage import FileBackend, GoogleObjectStorageBackend
+from alertingest.ingester import KafkaConnectionParams, IngestWorker
+from alertingest.storage import GoogleObjectStorageBackend
 from alertingest.schema_registry import SchemaRegistryClient
 
 
@@ -15,55 +15,37 @@ def main():
         description="Run a worker to copy alerts from Kafka into an object store backend.",
     )
     parser.add_argument(
-        "--backend",
-        type=str,
-        choices=("local-files", "google-cloud"),
-        default="local-files",
-        help="backend to use to source alerts",
-    )
-    parser.add_argument(
-        "--local-file-root",
-        type=str,
-        default=None,
-        help="when using the local-files backend, the root directory where alerts should be found",
-    )
-    parser.add_argument(
         "--gcp-project",
         type=str,
-        default=None,
+        default="alert-stream",
         help="when using the google-cloud backend, the name of the GCP project",
     )
     parser.add_argument(
         "--gcp-bucket",
         type=str,
-        default=None,
+        default="rubin-alert-archive",
         help="when using the google-cloud backend, the name of the Google Cloud Storage bucket",
     )
     parser.add_argument(
-        "--kafka-host", type=str, default="alert-broker.scratch.lsst.codes"
+        "--kafka-host", type=str, default="alertbroker-scratch.lsst.codes"
     )
     parser.add_argument("--kafka-topic", type=str, default="alerts")
+    parser.add_argument("--kafka-group", type=str, default="alertdb-ingester")
+    parser.add_argument("--kafka-username", type=str, default="admin")
     parser.add_argument(
-        "--schema-registry-host", type=str, default="alert-schemas.scratch.lsst.codes"
+        "--schema-registry-host", type=str, default="alertschemas-scratch.lsst.codes"
     )
     args = parser.parse_args()
 
-    # Configure the right backend
-    if args.backend == "local-files":
-        if args.local_file_root is None:
-            parser.error("--backend=local-files requires --local-file-root be set")
-        backend = FileBackend(args.local_file_root)
-    elif args.backend == "google-cloud":
-        if args.gcp_project is None:
-            parser.error("--backend=google-cloud requires --gcp-project be set")
-        if args.gcp_bucket is None:
-            parser.error("--backend=google-cloud requires --gcp-bucket be set")
-        backend = GoogleObjectStorageBackend(args.gcp_project, args.gcp_bucket)
-    else:
-        # Shouldn't be possible if argparse is using the choices parameter as expected...
-        raise AssertionError("only valid --backend choices are local-files and google-cloud")
-    kafka_consumer = AIOKafkaConsumer(args.kafka_topic, bootstrap_servers=[args.kafka_host])
+    kafka_params = KafkaConnectionParams(
+        args.kafka_host,
+        args.kafka_topic,
+        args.kafka_group,
+        args.kafka_username,
+        os.environ["ALERTDB_KAFKA_PASSWORD"],
+    )
+    backend = GoogleObjectStorageBackend(args.gcp_project, args.gcp_bucket)
     registry = SchemaRegistryClient(args.schema_registry_host)
 
-    worker = IngestWorker(kafka_consumer, backend, registry)
-    asyncio.run_forever(worker.run())
+    worker = IngestWorker(kafka_params, backend, registry)
+    asyncio.get_event_loop().run_until_complete(worker.run())

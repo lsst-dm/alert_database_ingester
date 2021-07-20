@@ -2,34 +2,56 @@
 A worker which copies alerts and schemas into an object store backend.
 """
 from typing import Tuple
+import ssl
 import struct
-
+from dataclasses import dataclass
 from aiokafka import AIOKafkaConsumer
 from alertingest.storage import AlertDatabaseBackend
 from alertingest.schema_registry import SchemaRegistryClient
 
 
+@dataclass
+class KafkaConnectionParams:
+    host: str
+    topic: str
+    group: str
+    username: str
+    password: str
+
+
 class IngestWorker:
     def __init__(self,
-                 kafka_consumer: AIOKafkaConsumer,
+                 kafka_params: KafkaConnectionParams,
                  backend: AlertDatabaseBackend,
                  registry: SchemaRegistryClient):
-        self.kafka_consumer = kafka_consumer
+        self.kafka_params = kafka_params
         self.backend = backend
         self.schema_registry = registry
 
     async def run(self):
-        await self.kafka_consumer.start()
+        ssl_ctx = ssl.SSLContext()
+        ssl_ctx.load_default_certs()
+        consumer = AIOKafkaConsumer(
+            self.kafka_params.topic,
+            bootstrap_servers=self.kafka_params.host,
+            group_id=self.kafka_params.group,
+            sasl_plain_username=self.kafka_params.username,
+            sasl_plain_password=self.kafka_params.password,
+            sasl_mechanism="SCRAM-SHA-256",
+            security_protocol="SASL_SSL",
+            ssl_context=ssl_ctx,
+        )
+        await consumer.start()
         try:
             since_last_commit = 0
-            async for msg in self.kafka_consumer:
+            async for msg in consumer:
                 self.handle_kafka_message(msg)
                 since_last_commit += 1
                 if since_last_commit == 100:
-                    await self.kafka_consumer.commit()
+                    await consumer.commit()
                     since_last_commit = 0
         finally:
-            await self.kafka_consumer.stop()
+            await consumer.stop()
 
     def handle_kafka_message(self, raw_msg):
         schema_id, alert_id = self._parse_alert_msg(raw_msg)
