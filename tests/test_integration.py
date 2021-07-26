@@ -65,6 +65,10 @@ class IngesterIntegrationTest(unittest.TestCase):
         cls._register_test_schema()
 
     def test_integration(self):
+        """
+        Run the ingester against a real Kafka topic, Google Cloud Storage bucket,
+        and Schema Registry.
+        """
         kafka_group = "alert_ingest_integration_test_group"
         kafka_params = KafkaConnectionParams(
             self.kafka_hostport,
@@ -82,20 +86,24 @@ class IngesterIntegrationTest(unittest.TestCase):
         n_msg = 5
         messages = [self.generate_random_alert(i) for i in range(n_msg)]
         loop = asyncio.get_event_loop()
-        loop.run_until_complete(self.write_messages(messages))
+        loop.run_until_complete(self.publish_alerts(messages))
 
-        # Run the worker, copying the messages into the backend.
+        # Run the worker, copying the messages into the backend. It's important
+        # to use 'auto_offset_reset="earliest"' here to deal with races between
+        # publishing and starting the consumer.
         run_worker = worker.run(limit=5, auto_offset_reset="earliest")
         loop.run_until_complete(asyncio.wait_for(run_worker, timeout=5))
 
         # The schema should be uploaded.
         assert backend.schema_exists(self.schema_id)
+
         # Each of the 5 alert should be uploaded.
         for message in messages:
             blob_url = f"/alert_archive/v1/alerts/{message['alertId']}.avro.gz"
             assert backend.bucket.blob(blob_url).exists()
 
-    async def write_messages(self, messages):
+    async def publish_alerts(self, alerts):
+        # Publish alerts to the Kafka broker.
         ssl_ctx = ssl.SSLContext()
         ssl_ctx.load_default_certs()
         producer = AIOKafkaProducer(
@@ -108,21 +116,30 @@ class IngesterIntegrationTest(unittest.TestCase):
         )
         await producer.start()
         try:
-            for message in messages:
-                logger.info("writing message with ID %s", message["alertId"])
-                await producer.send_and_wait(self.topic_name, self._encode_msg(message))
+            for alert in alerts:
+                logger.info("writing alert with ID %s", alert["alertId"])
+                await producer.send_and_wait(self.topic_name, self._encode_alert(alert))
         finally:
             await producer.stop()
 
-    def _encode_msg(self, message: dict) -> bytes:
+    def _encode_alert(self, alert: dict) -> bytes:
+        """
+        Encode an alert packet using self.schema, writing it in Confluent Wire Format.
+        """
         outgoing_bytes = io.BytesIO()
         outgoing_bytes.write(struct.pack("!b", 0))
         outgoing_bytes.write(struct.pack("!I", self.schema_id))
-        fastavro.schemaless_writer(outgoing_bytes, self.schema, message)
+        fastavro.schemaless_writer(outgoing_bytes, self.schema, alert)
         return outgoing_bytes.getvalue()
 
     @staticmethod
     def generate_random_alert(alert_id: int) -> dict:
+        """
+        Generate random alert packet.
+
+        This is tightly coupled to version 4.0 of the alert packet schema. This
+        is unfortunate, but it's relatively simple.
+        """
         return {
             "alertId": alert_id,
             "diaSource": {
@@ -148,6 +165,10 @@ class IngesterIntegrationTest(unittest.TestCase):
 
     @classmethod
     def _create_test_bucket(cls):
+        """
+        Create a bucket named 'alert_ingest_integration_test_bucket' and register a
+        cleanup function when the test exits for any reason.
+        """
         gcp_project = _load_required_env_var("gcp_project")
         client = gcs.Client(project=gcp_project)
 
@@ -215,6 +236,7 @@ class IngesterIntegrationTest(unittest.TestCase):
 
         topic_name = "alert_ingest_integration_test_topic"
         new_topic = NewTopic(name=topic_name, num_partitions=4, replication_factor=1)
+
         logger.info("creating topic %s", topic_name)
         try:
             client.create_topics([new_topic])
@@ -226,10 +248,15 @@ class IngesterIntegrationTest(unittest.TestCase):
             client.delete_topics([topic_name])
 
         cls.addClassCleanup(delete_topic)
+
         cls.topic_name = topic_name
 
     @classmethod
     def _load_schema_registry_creds(cls):
+        """
+        Parse the registry URL provided by environment variable to pull out
+        credentials.
+        """
         registry_url = _load_required_env_var("registry_url")
         parsed_url = urllib.parse.urlparse(registry_url)
         if (
@@ -286,38 +313,9 @@ class IngesterIntegrationTest(unittest.TestCase):
 
         loop = asyncio.get_event_loop()
         loop.run_until_complete(register_schema())
+
         cls.addClassCleanup(delete_schema_callback)
 
 
 def _load_test_schema():
     return lsst.alert.packet.Schema.from_file().definition
-
-
-def _clean_schema_naming(definition):
-    if isinstance(definition, str):
-        return _replace_lsst_prefix(definition)
-    elif isinstance(definition, list):
-        # handle union
-        return [_clean_schema_naming(x) for x in definition]
-    elif isinstance(definition, dict):
-        if "namespace" in definition:
-            definition["namespace"] = _replace_lsst_prefix(definition["namespace"])
-        if "name" in definition:
-            definition["name"] = _replace_lsst_prefix(definition["name"])
-
-        if "type" in definition:
-            definition["type"] = _clean_schema_naming(definition["type"])
-        if "fields" in definition:
-            for f in definition["fields"]:
-                f["type"] = _clean_schema_naming(f["type"])
-        if "items" in definition:
-            definition["items"] = _clean_schema_naming(definition["items"])
-        if "values" in definition:
-            definition["values"] = _clean_schema_naming(definition["values"])
-        return definition
-
-
-def _replace_lsst_prefix(s):
-    if s.startswith("lsst."):
-        return "lsst_test." + s[len("lsst."):]
-    return s
