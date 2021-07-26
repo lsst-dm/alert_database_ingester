@@ -27,13 +27,34 @@ def main():
         help="when using the google-cloud backend, the name of the Google Cloud Storage bucket",
     )
     parser.add_argument(
-        "--kafka-host", type=str, default="alertbroker-scratch.lsst.codes"
+        "--kafka-host",
+        type=str,
+        default="alertbroker-scratch.lsst.codes",
+        help="kafka host with alert data",
     )
-    parser.add_argument("--kafka-topic", type=str, default="alerts")
-    parser.add_argument("--kafka-group", type=str, default="alertdb-ingester")
-    parser.add_argument("--kafka-username", type=str, default="admin")
     parser.add_argument(
-        "--schema-registry-host", type=str, default="alertschemas-scratch.lsst.codes"
+        "--kafka-topic",
+        type=str,
+        default="alerts",
+        help="name of the Kafka topic with alert data",
+    )
+    parser.add_argument(
+        "--kafka-group",
+        type=str,
+        default="alertdb-ingester",
+        help="Name of a Kafka Consumer group to run under",
+    )
+    parser.add_argument(
+        "--kafka-username",
+        type=str,
+        default="admin",
+        help="Username to use when connecting to Kafka",
+    )
+    parser.add_argument(
+        "--schema-registry-host",
+        type=str,
+        default="alertschemas-scratch.lsst.codes",
+        help="Address of a Confluent Schema Registry server hosting schemas",
     )
     args = parser.parse_args()
 
