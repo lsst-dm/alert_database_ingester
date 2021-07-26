@@ -18,6 +18,9 @@ logger.level = logging.DEBUG
 
 @dataclass
 class KafkaConnectionParams:
+    """
+    A bundle of data required to connect to Kafka.
+    """
     host: str
     topic: str
     group: str
@@ -32,6 +35,12 @@ class IngestWorker:
         backend: AlertDatabaseBackend,
         registry: SchemaRegistryClient,
     ):
+        """
+        Copies Rubin alert data from a Kafka broker to a database backend, using a
+        schema registry to make sense of the alert data.
+
+        All alert data is expected to be encoded in Confluent Wire Format.
+        """
         self.kafka_params = kafka_params
         self.backend = backend
         self.schema_registry = registry
@@ -40,7 +49,7 @@ class IngestWorker:
         """
         Run the consumer, copying messages from Kafka to the IngestWorker's backend.
 
-        If limit is >0, exits after handling limit messages.
+        If limit > 0, exits after handling limit messages.
         """
         consumer = await self._create_consumer(auto_offset_reset)
         await consumer.start()
@@ -82,6 +91,13 @@ class IngestWorker:
         return consumer
 
     def handle_kafka_message(self, msg: ConsumerRecord):
+        """
+        Handle a single Kafka message.
+
+        Parses out the schema ID and alert ID from the message. Stores the
+        schema in the backend if it is not already present. Stores the alert
+        packet in the backend always.
+        """
         logger.info("handle start")
         raw_msg = msg.value
         schema_id, alert_id = self._parse_alert_msg(raw_msg)
@@ -96,8 +112,10 @@ class IngestWorker:
     def _parse_alert_msg(self, raw_msg: bytes) -> Tuple[int, str]:
         # return schema_id, alert_id from alert payload
         schema_id = _read_confluent_wire_format_header(raw_msg)
+
         logger.info("read schema ID %s, getting decoder", schema_id)
         decoder = self.schema_registry.get_schema_decoder(schema_id)
+
         decoded = decoder(io.BytesIO(raw_msg[5:]))
         return schema_id, decoded["alertId"]
 
