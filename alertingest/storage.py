@@ -72,6 +72,7 @@ class GoogleObjectStorageBackend(AlertDatabaseBackend):
     Queries to check whether a schema exists are cached forever. This code
     assumes that schemas are never deleted from the bucket.
     """
+
     def __init__(self, gcp_project: str, bucket_name: str):
         self.object_store_client = gcs.Client(project=gcp_project)
         self.bucket = self.object_store_client.bucket(bucket_name)

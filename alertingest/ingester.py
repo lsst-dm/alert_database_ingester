@@ -26,10 +26,12 @@ class KafkaConnectionParams:
 
 
 class IngestWorker:
-    def __init__(self,
-                 kafka_params: KafkaConnectionParams,
-                 backend: AlertDatabaseBackend,
-                 registry: SchemaRegistryClient):
+    def __init__(
+        self,
+        kafka_params: KafkaConnectionParams,
+        backend: AlertDatabaseBackend,
+        registry: SchemaRegistryClient,
+    ):
         self.kafka_params = kafka_params
         self.backend = backend
         self.schema_registry = registry
@@ -62,7 +64,7 @@ class IngestWorker:
         finally:
             await consumer.stop()
 
-    async def _create_consumer(self, auto_offset_reset: str="latest"):
+    async def _create_consumer(self, auto_offset_reset: str = "latest"):
         ssl_ctx = ssl.SSLContext()
         ssl_ctx.load_default_certs()
         consumer = AIOKafkaConsumer(

@@ -1,5 +1,3 @@
-from typing import List
-
 import asyncio
 import fastavro
 import io
@@ -19,7 +17,7 @@ import kafka.errors
 from kafkit.registry.aiohttp import RegistryApi
 
 import lsst.alert.packet
-from lsst.alert.packet.simulate import randomLong, randomDouble, randomString, randomInt, randomFloat
+from lsst.alert.packet.simulate import randomLong, randomDouble, randomString, randomInt
 
 from alertingest.ingester import KafkaConnectionParams, IngestWorker
 from alertingest.storage import GoogleObjectStorageBackend
@@ -139,7 +137,7 @@ class IngesterIntegrationTest(unittest.TestCase):
                 "psFlux": randomFloat(),
                 "psFluxErr": randomFloat(),
                 "flags": 0,
-            }
+            },
         }
 
     @classmethod
@@ -170,10 +168,14 @@ class IngesterIntegrationTest(unittest.TestCase):
         """
         kafka_url = _load_required_env_var("kafka_url")
         parsed_url = urllib.parse.urlparse(kafka_url)
-        if parsed_url.scheme != "kafka" or parsed_url.username is None or parsed_url.password is None:
+        if (
+            parsed_url.scheme != "kafka"
+            or parsed_url.username is None
+            or parsed_url.password is None
+        ):
             raise ValueError(
-                "ALERT_INGEST_TEST_KAFKA_URL's required format is " +
-                "'kafka://USERNAME:PASSWORD@HOSTNAME[:PORT]'"
+                "ALERT_INGEST_TEST_KAFKA_URL's required format is "
+                + "'kafka://USERNAME:PASSWORD@HOSTNAME[:PORT]'"
             )
 
         cls.kafka_username = parsed_url.username
@@ -224,9 +226,15 @@ class IngesterIntegrationTest(unittest.TestCase):
     def _load_schema_registry_creds(cls):
         registry_url = _load_required_env_var("registry_url")
         parsed_url = urllib.parse.urlparse(registry_url)
-        if parsed_url.scheme != "https" or parsed_url.username is None or parsed_url.password is None:
-            raise ValueError("schema registry URL's required format is " +
-                             "'https://USERNAME:PASSWORD@HOSTNAME[:PORT]'")
+        if (
+            parsed_url.scheme != "https"
+            or parsed_url.username is None
+            or parsed_url.password is None
+        ):
+            raise ValueError(
+                "schema registry URL's required format is "
+                + "'https://USERNAME:PASSWORD@HOSTNAME[:PORT]'"
+            )
         cls.registry_username = parsed_url.username
         cls.registry_password = parsed_url.password
         cls.registry_hostport = parsed_url.hostname
@@ -241,19 +249,27 @@ class IngesterIntegrationTest(unittest.TestCase):
         """
         cls.schema = _load_test_schema()
         schema_subject = "alert_ingest_integration_test_subject"
-        auth = aiohttp.BasicAuth(login=cls.registry_username, password=cls.registry_password)
+        auth = aiohttp.BasicAuth(
+            login=cls.registry_username, password=cls.registry_password
+        )
 
         async def register_schema():
             async with aiohttp.ClientSession(auth=auth) as session:
-                reg = RegistryApi(session=session, url="https://" + cls.registry_hostport)
+                reg = RegistryApi(
+                    session=session, url="https://" + cls.registry_hostport
+                )
                 logger.info("registering schema subject %s", schema_subject)
-                schema_id = await reg.register_schema(cls.schema, subject=schema_subject)
+                schema_id = await reg.register_schema(
+                    cls.schema, subject=schema_subject
+                )
                 cls.schema_id = schema_id
                 logger.info("schema registered with ID %s", schema_id)
 
         async def delete_schema():
             async with aiohttp.ClientSession(auth=auth) as session:
-                reg = RegistryApi(session=session, url="https://" + cls.registry_hostport)
+                reg = RegistryApi(
+                    session=session, url="https://" + cls.registry_hostport
+                )
                 logger.info("deleting schema subject %s", schema_subject)
                 await reg.delete(f"/subjects/{schema_subject}?permanent=true")
                 logger.info("deletion complete")
@@ -269,7 +285,6 @@ class IngesterIntegrationTest(unittest.TestCase):
 
 def _load_test_schema():
     return lsst.alert.packet.Schema.from_file().definition
-
 
 
 def _clean_schema_naming(definition):
@@ -298,5 +313,5 @@ def _clean_schema_naming(definition):
 
 def _replace_lsst_prefix(s):
     if s.startswith("lsst."):
-        return "lsst_test." + s[len("lsst."):]
+        return "lsst_test." + s[len("lsst.") :]
     return s
