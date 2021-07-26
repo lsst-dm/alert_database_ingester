@@ -17,7 +17,13 @@ import kafka.errors
 from kafkit.registry.aiohttp import RegistryApi
 
 import lsst.alert.packet
-from lsst.alert.packet.simulate import randomLong, randomDouble, randomString, randomInt
+from lsst.alert.packet.simulate import (
+    randomLong,
+    randomDouble,
+    randomString,
+    randomInt,
+    randomFloat,
+)
 
 from alertingest.ingester import KafkaConnectionParams, IngestWorker
 from alertingest.storage import GoogleObjectStorageBackend
@@ -313,5 +319,5 @@ def _clean_schema_naming(definition):
 
 def _replace_lsst_prefix(s):
     if s.startswith("lsst."):
-        return "lsst_test." + s[len("lsst.") :]
+        return "lsst_test." + s[len("lsst."):]
     return s

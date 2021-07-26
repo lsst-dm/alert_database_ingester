@@ -5,7 +5,6 @@ Implementations of backend storage systems for the alert database server.
 import abc
 import gzip
 
-import google.api_core.exceptions
 import google.cloud.storage as gcs
 
 

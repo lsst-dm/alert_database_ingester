@@ -1,7 +1,6 @@
 import asyncio
 import argparse
 import os
-from aiokafka import AIOKafkaConsumer
 
 from alertingest.ingester import KafkaConnectionParams, IngestWorker
 from alertingest.storage import GoogleObjectStorageBackend
