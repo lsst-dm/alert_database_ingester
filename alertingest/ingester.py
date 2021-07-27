@@ -45,11 +45,22 @@ class IngestWorker:
         self.backend = backend
         self.schema_registry = registry
 
-    async def run(self, limit: int = -1, auto_offset_reset: str = "latest"):
-        """
-        Run the consumer, copying messages from Kafka to the IngestWorker's backend.
+    async def run(self, limit: int = -1, commit_interval: int = 100, auto_offset_reset: str = "latest"):
+        """Run the consumer, copying messages from Kafka to the IngestWorker's backend.
 
-        If limit > 0, exits after handling limit messages.
+        Parameters
+        ----------
+        limit : int
+            Maximum number of messages to copy. If this value is less than 1, no
+            limit is used. The default is -1.
+        commit_interval : int
+            Interval (measured in messages) between committing the offset of the
+            worker. Higher values will require more repeated work if the
+            IngestWorker crashes or backends are unavailable, while lower values
+            will cost more overhead communicating with Kafka.
+        auto_offset_reset : str
+            When reading from a new topic, where should the worker start?
+            Options are "latest" and "earliest".
         """
         consumer = await self._create_consumer(auto_offset_reset)
         await consumer.start()
@@ -62,7 +73,7 @@ class IngestWorker:
                 self.handle_kafka_message(msg)
                 logger.info("handle complete")
                 since_last_commit += 1
-                if since_last_commit == 100:
+                if since_last_commit == commit_interval:
                     logger.info("committing position in stream")
                     await consumer.commit()
                     since_last_commit = 0
