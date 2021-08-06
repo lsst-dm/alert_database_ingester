@@ -10,7 +10,8 @@ import google.cloud.storage as gcs
 
 class AlertDatabaseBackend(abc.ABC):
     """
-    An abstract interface representing a storage backend for alerts and schemas.
+    An abstract interface representing a storage backend for alerts and
+    schemas.
     """
 
     @abc.abstractmethod

@@ -36,8 +36,8 @@ class IngestWorker:
         registry: SchemaRegistryClient,
     ):
         """
-        Copies Rubin alert data from a Kafka broker to a database backend, using a
-        schema registry to make sense of the alert data.
+        Copies Rubin alert data from a Kafka broker to a database backend,
+        using a schema registry to make sense of the alert data.
 
         All alert data is expected to be encoded in Confluent Wire Format.
         """
@@ -46,18 +46,20 @@ class IngestWorker:
         self.schema_registry = registry
 
     async def run(self, limit: int = -1, commit_interval: int = 100, auto_offset_reset: str = "latest"):
-        """Run the consumer, copying messages from Kafka to the IngestWorker's backend.
+        """
+        Run the consumer, copying messages from Kafka to the IngestWorker's
+        backend.
 
         Parameters
         ----------
         limit : int
-            Maximum number of messages to copy. If this value is less than 1, no
-            limit is used. The default is -1.
+            Maximum number of messages to copy. If this value is less than 1,
+            no limit is used. The default is -1.
         commit_interval : int
-            Interval (measured in messages) between committing the offset of the
-            worker. Higher values will require more repeated work if the
-            IngestWorker crashes or backends are unavailable, while lower values
-            will cost more overhead communicating with Kafka.
+            Interval (measured in messages) between committing the offset of
+            the worker. Higher values will require more repeated work if the
+            IngestWorker crashes or backends are unavailable, while lower
+            values will cost more overhead communicating with Kafka.
         auto_offset_reset : str
             When reading from a new topic, where should the worker start?
             Options are "latest" and "earliest".
