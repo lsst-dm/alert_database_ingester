@@ -1,7 +1,7 @@
 """
 Implementations of backend storage systems for the alert database server.
 """
-
+from typing import Set
 import abc
 import gzip
 
@@ -76,7 +76,7 @@ class GoogleObjectStorageBackend(AlertDatabaseBackend):
     def __init__(self, gcp_project: str, bucket_name: str):
         self.object_store_client = gcs.Client(project=gcp_project)
         self.bucket = self.object_store_client.bucket(bucket_name)
-        self.known_schemas = set()
+        self.known_schemas: Set[str] = set()
 
     def store_alert(self, alert_id: str, alert_payload: bytes):
         compressed_payload = gzip.compress(alert_payload)
