@@ -1,0 +1,71 @@
+name: ci
+
+on:
+  - push
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+
+      - name: Set up Python
+        uses: actions/setup-python@v2
+        with:
+          python-version: 3.8
+
+      - name: Install package
+        run: pip install .[dev]
+
+      - name: Run commit-blocking lint checks
+        run: pre-commit run --all-files
+
+  unit-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+
+      - name: Set up Python
+        uses: actions/setup-python@v2
+        with:
+          python-version: 3.8
+
+      - name: Install Pytest
+        run: pip install pytest
+
+      - name: Install package
+        run: pip install .
+
+      - name: Run unit tests
+        run: pytest
+
+  integration-test:
+    runs-on: ubuntu-latest
+    concurrency: integration-test
+    steps:
+      - uses: actions/checkout@v2
+
+      - name: Set up Python
+        uses: actions/setup-python@v2
+        with:
+          python-version: 3.8
+
+      - name: Install Pytest
+        run: pip install pytest
+
+      - name: Install package
+        run: pip install .
+
+      - name: Set up cloud SDK
+        uses: google-github-actions/setup-gcloud@master
+        with:
+          project_id: ${{ secrets.GCP_PROJECT_ID }}
+          service_account_key: ${{ secrets.GCP_SA_KEY }}
+          export_default_credentials: true
+
+      - name: Run integration tests
+        run: pytest
+        env:
+          ALERT_INGEST_TEST_GCP_PROJECT: ${{ secrets.GCP_PROJECT_ID }}
+          ALERT_INGEST_TEST_KAFKA_URL: ${{ secrets.KAFKA_TEST_URL }}
+          ALERT_INGEST_TEST_REGISTRY_URL: ${{ secrets.KAFKA_REGISTRY_URL }}
