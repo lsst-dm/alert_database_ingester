@@ -34,7 +34,7 @@ jobs:
         run: pip install .[dev]
 
       - name: Run unit tests
-        run: pytest
+        run: pytest --log-format="%(asctime)s %(levelname)s %(message)s" --log-date-format="%Y-%m-%d %H:%M:%S"
 
   integration-test:
     runs-on: ubuntu-latest
@@ -58,7 +58,7 @@ jobs:
           export_default_credentials: true
 
       - name: Run integration tests
-        run: pytest
+        run: pytest --log-format="%(asctime)s %(levelname)s %(message)s" --log-date-format="%Y-%m-%d %H:%M:%S"
         env:
           ALERT_INGEST_TEST_GCP_PROJECT: ${{ secrets.GCP_PROJECT_ID }}
           ALERT_INGEST_TEST_KAFKA_URL: ${{ secrets.KAFKA_TEST_URL }}
