@@ -93,7 +93,7 @@ class IngesterIntegrationTest(unittest.TestCase):
         # to use 'auto_offset_reset="earliest"' here to deal with races between
         # publishing and starting the consumer.
         run_worker = worker.run(limit=5, auto_offset_reset="earliest")
-        loop.run_until_complete(asyncio.wait_for(run_worker, timeout=5))
+        loop.run_until_complete(asyncio.wait_for(run_worker, timeout=15))
 
         # The schema should be uploaded.
         assert backend.schema_exists(self.schema_id)
