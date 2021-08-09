@@ -30,11 +30,8 @@ jobs:
         with:
           python-version: 3.8
 
-      - name: Install Pytest
-        run: pip install pytest
-
       - name: Install package
-        run: pip install .
+        run: pip install .[dev]
 
       - name: Run unit tests
         run: pytest
@@ -50,11 +47,8 @@ jobs:
         with:
           python-version: 3.8
 
-      - name: Install Pytest
-        run: pip install pytest
-
       - name: Install package
-        run: pip install .
+        run: pip install .[dev]
 
       - name: Set up cloud SDK
         uses: google-github-actions/setup-gcloud@master
