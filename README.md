@@ -78,6 +78,25 @@ alertdb-ingester
 Install the dev dependencies and in editable mode with `pip install --editable
 '.[dev]'`.
 
+Then, install precommit hooks with
+```
+pre-commit install
+```
+
+### Running lint and mypy ###
+Linters and mypy checks should run automatically when you go to commit. To run
+them on-demand, you can use:
+
+```
+pre-commit run
+```
+
+That will only run on the files that you changed; to run on all files, use
+
+```
+pre-commit run --all-files
+```
+
 ### Running tests
 
 Run tests with `pytest`. You can just do `pytest .` in the repo root.
