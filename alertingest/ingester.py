@@ -1,16 +1,17 @@
 """
 A worker which copies alerts and schemas into an object store backend.
 """
-from typing import Tuple
 import io
+import logging
 import ssl
 import struct
-import logging
 from dataclasses import dataclass
-from aiokafka import AIOKafkaConsumer, ConsumerRecord
-from alertingest.storage import AlertDatabaseBackend
-from alertingest.schema_registry import SchemaRegistryClient
+from typing import Tuple
 
+from aiokafka import AIOKafkaConsumer, ConsumerRecord
+
+from alertingest.schema_registry import SchemaRegistryClient
+from alertingest.storage import AlertDatabaseBackend
 
 logger = logging.getLogger(__name__)
 logger.level = logging.DEBUG
@@ -21,6 +22,7 @@ class KafkaConnectionParams:
     """
     A bundle of data required to connect to Kafka.
     """
+
     host: str
     topic: str
     group: str
@@ -45,7 +47,12 @@ class IngestWorker:
         self.backend = backend
         self.schema_registry = registry
 
-    async def run(self, limit: int = -1, commit_interval: int = 100, auto_offset_reset: str = "latest"):
+    async def run(
+        self,
+        limit: int = -1,
+        commit_interval: int = 100,
+        auto_offset_reset: str = "latest",
+    ):
         """
         Run the consumer, copying messages from Kafka to the IngestWorker's
         backend.

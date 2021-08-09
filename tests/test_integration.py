@@ -1,5 +1,4 @@
 import asyncio
-import fastavro
 import io
 import logging
 import os
@@ -9,26 +8,25 @@ import unittest
 import urllib
 
 import aiohttp
-from aiokafka import AIOKafkaProducer
+import fastavro
 import google.api_core.exceptions
 import google.cloud.storage as gcs
-from kafka.admin import KafkaAdminClient, NewTopic
 import kafka.errors
-from kafkit.registry.aiohttp import RegistryApi
-
 import lsst.alert.packet
+from aiokafka import AIOKafkaProducer
+from kafka.admin import KafkaAdminClient, NewTopic
+from kafkit.registry.aiohttp import RegistryApi
 from lsst.alert.packet.simulate import (
-    randomLong,
     randomDouble,
-    randomString,
-    randomInt,
     randomFloat,
+    randomInt,
+    randomLong,
+    randomString,
 )
 
-from alertingest.ingester import KafkaConnectionParams, IngestWorker
-from alertingest.storage import GoogleObjectStorageBackend
+from alertingest.ingester import IngestWorker, KafkaConnectionParams
 from alertingest.schema_registry import SchemaRegistryClient
-
+from alertingest.storage import GoogleObjectStorageBackend
 
 logger = logging.getLogger(__name__)
 logger.level = logging.DEBUG

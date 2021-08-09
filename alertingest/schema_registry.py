@@ -1,10 +1,9 @@
-from typing import Callable, IO, Any, Dict
+import json
+import logging
+from typing import IO, Any, Callable, Dict
 
 import avroc
-import json
 import requests
-import logging
-
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)

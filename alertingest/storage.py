@@ -1,9 +1,9 @@
 """
 Implementations of backend storage systems for the alert database server.
 """
-from typing import Set
 import abc
 import gzip
+from typing import Set
 
 import google.cloud.storage as gcs
 

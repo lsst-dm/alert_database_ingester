@@ -1,10 +1,10 @@
-import asyncio
 import argparse
+import asyncio
 import os
 
-from alertingest.ingester import KafkaConnectionParams, IngestWorker
-from alertingest.storage import GoogleObjectStorageBackend
+from alertingest.ingester import IngestWorker, KafkaConnectionParams
 from alertingest.schema_registry import SchemaRegistryClient
+from alertingest.storage import GoogleObjectStorageBackend
 
 
 def main():
