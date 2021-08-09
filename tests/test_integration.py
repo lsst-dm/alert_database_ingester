@@ -48,6 +48,9 @@ def _load_required_env_var(name):
 
 
 class IngesterIntegrationTest(unittest.TestCase):
+    schema_id = -1
+    schema = {}  # type: ignore
+
     @classmethod
     def setUpClass(cls):
         """

@@ -129,7 +129,7 @@ class IngestWorker:
         logger.debug("storing alert")
         self.backend.store_alert(alert_id, raw_msg)
 
-    def _parse_alert_msg(self, raw_msg: bytes) -> Tuple[int, str]:
+    def _parse_alert_msg(self, raw_msg: bytes) -> Tuple[int, int]:
         # return schema_id, alert_id from alert payload
         schema_id = _read_confluent_wire_format_header(raw_msg)
 
