@@ -1,10 +1,9 @@
-from typing import Callable, IO, Any
+import json
+import logging
+from typing import IO, Any, Callable, Dict
 
 import avroc
-import json
 import requests
-import logging
-
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
@@ -16,7 +15,7 @@ Decoder = Callable[[IO[bytes]], Any]
 class SchemaRegistryClient:
     def __init__(self, address: str):
         self.address = address
-        self._cached_decoders = {}
+        self._cached_decoders: Dict[int, Decoder] = {}
 
     def get_raw_schema(self, schema_id: int) -> bytes:
         url = f"https://{self.address}/schemas/ids/{schema_id}"
@@ -45,7 +44,7 @@ class SchemaRegistryClient:
 
         # Compile the decoder, so we correctly skip unused fields.
         logger.debug("compiling decoder")
-        decoder = avroc.compile_decoder(writer_schema, reader_schema)
+        decoder: Decoder = avroc.compile_decoder(writer_schema, reader_schema)
 
         self._cached_decoders[schema_id] = decoder
         logger.debug("decoder construction done")

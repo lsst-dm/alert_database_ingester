@@ -1,5 +1,4 @@
 import asyncio
-import fastavro
 import io
 import logging
 import os
@@ -9,26 +8,25 @@ import unittest
 import urllib
 
 import aiohttp
-from aiokafka import AIOKafkaProducer
+import fastavro
 import google.api_core.exceptions
 import google.cloud.storage as gcs
-from kafka.admin import KafkaAdminClient, NewTopic
 import kafka.errors
-from kafkit.registry.aiohttp import RegistryApi
-
 import lsst.alert.packet
+from aiokafka import AIOKafkaProducer
+from kafka.admin import KafkaAdminClient, NewTopic
+from kafkit.registry.aiohttp import RegistryApi
 from lsst.alert.packet.simulate import (
-    randomLong,
     randomDouble,
-    randomString,
-    randomInt,
     randomFloat,
+    randomInt,
+    randomLong,
+    randomString,
 )
 
-from alertingest.ingester import KafkaConnectionParams, IngestWorker
-from alertingest.storage import GoogleObjectStorageBackend
+from alertingest.ingester import IngestWorker, KafkaConnectionParams
 from alertingest.schema_registry import SchemaRegistryClient
-
+from alertingest.storage import GoogleObjectStorageBackend
 
 logger = logging.getLogger(__name__)
 logger.level = logging.DEBUG
@@ -50,6 +48,9 @@ def _load_required_env_var(name):
 
 
 class IngesterIntegrationTest(unittest.TestCase):
+    schema_id = -1
+    schema = {}  # type: ignore
+
     @classmethod
     def setUpClass(cls):
         """
@@ -66,8 +67,8 @@ class IngesterIntegrationTest(unittest.TestCase):
 
     def test_integration(self):
         """
-        Run the ingester against a real Kafka topic, Google Cloud Storage bucket,
-        and Schema Registry.
+        Run the ingester against a real Kafka topic, Google Cloud Storage
+        bucket, and Schema Registry.
         """
         kafka_group = "alert_ingest_integration_test_group"
         kafka_params = KafkaConnectionParams(
@@ -92,7 +93,7 @@ class IngesterIntegrationTest(unittest.TestCase):
         # to use 'auto_offset_reset="earliest"' here to deal with races between
         # publishing and starting the consumer.
         run_worker = worker.run(limit=5, auto_offset_reset="earliest")
-        loop.run_until_complete(asyncio.wait_for(run_worker, timeout=5))
+        loop.run_until_complete(asyncio.wait_for(run_worker, timeout=15))
 
         # The schema should be uploaded.
         assert backend.schema_exists(self.schema_id)
@@ -124,7 +125,8 @@ class IngesterIntegrationTest(unittest.TestCase):
 
     def _encode_alert(self, alert: dict) -> bytes:
         """
-        Encode an alert packet using self.schema, writing it in Confluent Wire Format.
+        Encode an alert packet using self.schema, writing it in Confluent Wire
+        Format.
         """
         outgoing_bytes = io.BytesIO()
         outgoing_bytes.write(struct.pack("!b", 0))
@@ -166,8 +168,8 @@ class IngesterIntegrationTest(unittest.TestCase):
     @classmethod
     def _create_test_bucket(cls):
         """
-        Create a bucket named 'alert_ingest_integration_test_bucket' and register a
-        cleanup function when the test exits for any reason.
+        Create a bucket named 'alert_ingest_integration_test_bucket' and
+        register a cleanup function when the test exits for any reason.
         """
         gcp_project = _load_required_env_var("gcp_project")
         client = gcs.Client(project=gcp_project)
@@ -191,7 +193,8 @@ class IngesterIntegrationTest(unittest.TestCase):
     @classmethod
     def _set_kafka_creds(cls):
         """
-        Load Kafka username, password, host, and port from an environment variable.
+        Load Kafka username, password, host, and port from an environment
+        variable.
         """
         kafka_url = _load_required_env_var("kafka_url")
         parsed_url = urllib.parse.urlparse(kafka_url)
@@ -214,8 +217,8 @@ class IngesterIntegrationTest(unittest.TestCase):
     @classmethod
     def _create_test_topic(cls):
         """
-        Create a topic named 'alert_ingest_integration_test_topic'. Delete it when
-        the test is done.
+        Create a topic named 'alert_ingest_integration_test_topic'. Delete it
+        when the test is done.
 
         Uses the credentials from cls._set_kafka_creds. Expects the broker to
         use SCRAM-SHA-256 plain authentication over SSL.
@@ -277,8 +280,8 @@ class IngesterIntegrationTest(unittest.TestCase):
     @classmethod
     def _register_test_schema(cls):
         """
-        Register an alert schema in the Schema Registry. Delete it when the test is
-        done.
+        Register an alert schema in the Schema Registry. Delete it when the
+        test is done.
         """
         cls.schema = _load_test_schema()
         schema_subject = "alert_ingest_integration_test_subject"
