@@ -153,7 +153,7 @@ class IngestWorker:
         finally:
             await consumer.stop()
 
-    async def _create_consumer(self, auto_offset_reset: str = "latest"):
+    def _create_consumer(self, auto_offset_reset: str = "latest"):
         if self.kafka_params.auth_mechanism == "scram":
             return self._create_scram_consumer(auto_offset_reset)
         elif self.kafka_params.auth_mechanism == "mtls":
@@ -161,7 +161,7 @@ class IngestWorker:
         else:
             raise ValueError("invalid auth mechanism")
 
-    async def _create_scram_consumer(self, auto_offset_reset):
+    def _create_scram_consumer(self, auto_offset_reset):
         ssl_ctx = ssl.SSLContext()
         ssl_ctx.load_default_certs()
         consumer = AIOKafkaConsumer(
@@ -170,6 +170,7 @@ class IngestWorker:
             group_id=self.kafka_params.group,
             sasl_plain_username=self.kafka_params.username,
             sasl_plain_password=self.kafka_params.password,
+            sasl_mechanism="SCRAM-SHA-256",
             security_protocol="SASL_SSL",
             ssl_context=ssl_ctx,
             enable_auto_commit=False,
@@ -177,7 +178,7 @@ class IngestWorker:
         )
         return consumer
 
-    async def _create_mtls_consumer(self, auto_offset_reset):
+    def _create_mtls_consumer(self, auto_offset_reset):
         consumer = AIOKafkaConsumer(
             self.kafka_params.topic,
             bootstrap_servers=self.kafka_params.host,
