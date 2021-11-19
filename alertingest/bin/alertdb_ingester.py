@@ -44,10 +44,44 @@ def main():
         help="Name of a Kafka Consumer group to run under",
     )
     parser.add_argument(
+        "--kafka-auth-mechanism",
+        type=str,
+        choices=("mtls", "scram"),
+        default="scram",
+        help="Kafka authentication mechanism to use",
+    )
+    parser.add_argument(
         "--kafka-username",
         type=str,
         default="admin",
-        help="Username to use when connecting to Kafka",
+        help="Username to use when connecting to Kafka. Only used if --kafka-auth-mechanism=ssl",
+    )
+    parser.add_argument(
+        "--tls-client-key-location",
+        type=str,
+        default="",
+        help=(
+            "Path to a client PEM key used for mTLS authentication. "
+            "Only used if --kafka-auth-mechanism=scram."
+        ),
+    )
+    parser.add_argument(
+        "--tls-client-crt-location",
+        type=str,
+        default="",
+        help=(
+            "Path to a client public cert used for mTLS authentication. "
+            "Only used if --kafka-auth-mechanism=scram."
+        ),
+    )
+    parser.add_argument(
+        "--tls-server-ca-crt-location",
+        type=str,
+        default="",
+        help=(
+            "Path to a CA public cert used to verify the server's TLS cert. "
+            "Only used if --kafka-auth-mechanism=scram."
+        ),
     )
     parser.add_argument(
         "--schema-registry-host",
@@ -57,13 +91,26 @@ def main():
     )
     args = parser.parse_args()
 
-    kafka_params = KafkaConnectionParams(
-        args.kafka_host,
-        args.kafka_topic,
-        args.kafka_group,
-        args.kafka_username,
-        os.environ["ALERTDB_KAFKA_PASSWORD"],
-    )
+    if args.kafka_auth_mechanism == "scram":
+        kafka_params = KafkaConnectionParams.with_scram(
+            host=args.kafka_host,
+            topic=args.kafka_topic,
+            group=args.kafka_group,
+            username=args.kafka_username,
+            password=os.environ["ALERTDB_KAFKA_PASSWORD"],
+        )
+    elif args.kafka_auth_mechanism == "mtls":
+        kafka_params = KafkaConnectionParams.with_scram(
+            host=args.kafka_host,
+            topic=args.kafka_topic,
+            group=args.kafka_group,
+            client_key_path=args.tls_client_key_location,
+            client_crt_path=args.tls_client_crt_location,
+            server_ca_crt_path=args.tls_server_ca_crt_location,
+        )
+    else:
+        raise AssertionError("--kafka-auth-mechanism must be either scram or mtls")
+
     backend = GoogleObjectStorageBackend(args.gcp_project, args.gcp_bucket)
     registry = SchemaRegistryClient(args.schema_registry_host)
 

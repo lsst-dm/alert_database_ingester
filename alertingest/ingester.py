@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from typing import Tuple
 
 from aiokafka import AIOKafkaConsumer, ConsumerRecord
+from aiokafka.helpers import create_ssl_context
 
 from alertingest.schema_registry import SchemaRegistryClient
 from alertingest.storage import AlertDatabaseBackend
@@ -26,8 +27,67 @@ class KafkaConnectionParams:
     host: str
     topic: str
     group: str
+
+    auth_mechanism: str
+
     username: str
     password: str
+
+    client_key_path: str
+    client_crt_path: str
+    server_ca_crt_path: str
+
+    @classmethod
+    def with_scram(
+        cls, host: str, topic: str, group: str, username: str, password: str
+    ):
+        """Instantiate a new param bundle using SCRAM auth."""
+        return cls(
+            host=host,
+            topic=topic,
+            group=group,
+            auth_mechanism="scram",
+            username=username,
+            password=password,
+            client_key_path="",
+            client_crt_path="",
+            server_ca_crt_path="",
+        )
+
+    @classmethod
+    def with_mtls(
+        cls,
+        host: str,
+        topic: str,
+        group: str,
+        client_key_path: str,
+        client_crt_path: str,
+        server_ca_crt_path: str,
+    ):
+        """Instantiate a new param bundle using mTLS auth."""
+        return cls(
+            host=host,
+            topic=topic,
+            group=group,
+            auth_mechanism="mtls",
+            client_key_path=client_key_path,
+            client_crt_path=client_crt_path,
+            server_ca_crt_path=server_ca_crt_path,
+            username="",
+            password="",
+        )
+
+    def _create_ssl_context(self) -> ssl.SSLContext:
+        """
+        Bundles the KafkaConnectionParams' SSL-related attributes into an
+        SSL context.
+        """
+        assert self.auth_mechanism == "mtls"
+        return create_ssl_context(
+            cafile=self.server_ca_crt_path,
+            certfile=self.client_crt_path,
+            keyfile=self.client_key_path,
+        )
 
 
 class IngestWorker:
@@ -94,6 +154,14 @@ class IngestWorker:
             await consumer.stop()
 
     async def _create_consumer(self, auto_offset_reset: str = "latest"):
+        if self.kafka_params.auth_mechanism == "scram":
+            return self._create_scram_consumer(auto_offset_reset)
+        elif self.kafka_params.auth_mechanism == "mtls":
+            return self._create_mtls_consumer(auto_offset_reset)
+        else:
+            raise ValueError("invalid auth mechanism")
+
+    async def _create_scram_consumer(self, auto_offset_reset):
         ssl_ctx = ssl.SSLContext()
         ssl_ctx.load_default_certs()
         consumer = AIOKafkaConsumer(
@@ -102,9 +170,20 @@ class IngestWorker:
             group_id=self.kafka_params.group,
             sasl_plain_username=self.kafka_params.username,
             sasl_plain_password=self.kafka_params.password,
-            sasl_mechanism="SCRAM-SHA-256",
             security_protocol="SASL_SSL",
             ssl_context=ssl_ctx,
+            enable_auto_commit=False,
+            auto_offset_reset=auto_offset_reset,
+        )
+        return consumer
+
+    async def _create_mtls_consumer(self, auto_offset_reset):
+        consumer = AIOKafkaConsumer(
+            self.kafka_params.topic,
+            bootstrap_servers=self.kafka_params.host,
+            group_id=self.kafka_params.group,
+            security_protocol="SSL",
+            ssl_context=self.kafka_params._create_ssl_context(),
             enable_auto_commit=False,
             auto_offset_reset=auto_offset_reset,
         )
