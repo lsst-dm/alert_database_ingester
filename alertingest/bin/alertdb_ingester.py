@@ -100,7 +100,7 @@ def main():
             password=os.environ["ALERTDB_KAFKA_PASSWORD"],
         )
     elif args.kafka_auth_mechanism == "mtls":
-        kafka_params = KafkaConnectionParams.with_scram(
+        kafka_params = KafkaConnectionParams.with_mtls(
             host=args.kafka_host,
             topic=args.kafka_topic,
             group=args.kafka_group,
