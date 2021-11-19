@@ -131,7 +131,7 @@ class IngestWorker:
             When reading from a new topic, where should the worker start?
             Options are "latest" and "earliest".
         """
-        consumer = await self._create_consumer(auto_offset_reset)
+        consumer = self._create_consumer(auto_offset_reset)
         await consumer.start()
         try:
             since_last_commit = 0
