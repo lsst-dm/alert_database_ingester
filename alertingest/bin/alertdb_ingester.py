@@ -84,9 +84,9 @@ def main():
         ),
     )
     parser.add_argument(
-        "--schema-registry-host",
+        "--schema-registry-address",
         type=str,
-        default="alertschemas-scratch.lsst.codes",
+        default="https://alertschemas-scratch.lsst.codes:443",
         help="Address of a Confluent Schema Registry server hosting schemas",
     )
     args = parser.parse_args()
@@ -112,7 +112,7 @@ def main():
         raise AssertionError("--kafka-auth-mechanism must be either scram or mtls")
 
     backend = GoogleObjectStorageBackend(args.gcp_project, args.gcp_bucket)
-    registry = SchemaRegistryClient(args.schema_registry_host)
+    registry = SchemaRegistryClient(args.schema_registry_address)
 
     worker = IngestWorker(kafka_params, backend, registry)
     asyncio.get_event_loop().run_until_complete(worker.run())

@@ -18,7 +18,7 @@ class SchemaRegistryClient:
         self._cached_decoders: Dict[int, Decoder] = {}
 
     def get_raw_schema(self, schema_id: int) -> bytes:
-        url = f"https://{self.address}/schemas/ids/{schema_id}"
+        url = f"{self.address}/schemas/ids/{schema_id}"
         logger.debug("making request to %s", url)
         response = requests.get(url, timeout=5)
         response.raise_for_status()
