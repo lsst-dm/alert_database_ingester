@@ -26,11 +26,14 @@ pip install .
 
 The ingester is installed by `pip` as a command named `alertdb-ingester`:
 ```
-% usage: alertdb-ingester [-h] [--gcp-project GCP_PROJECT]
-                        [--gcp-bucket GCP_BUCKET] [--kafka-host KAFKA_HOST]
-                        [--kafka-topic KAFKA_TOPIC]
+usage: alertdb-ingester [-h] [--gcp-project GCP_PROJECT] [--gcp-bucket GCP_BUCKET]
+                        [--kafka-host KAFKA_HOST] [--kafka-topic KAFKA_TOPIC]
                         [--kafka-group KAFKA_GROUP]
+                        [--kafka-auth-mechanism {mtls,scram}]
                         [--kafka-username KAFKA_USERNAME]
+                        [--tls-client-key-location TLS_CLIENT_KEY_LOCATION]
+                        [--tls-client-crt-location TLS_CLIENT_CRT_LOCATION]
+                        [--tls-server-ca-crt-location TLS_SERVER_CA_CRT_LOCATION]
                         [--schema-registry-host SCHEMA_REGISTRY_HOST]
 
 Run a worker to copy alerts from Kafka into an object store backend.
@@ -38,24 +41,33 @@ Run a worker to copy alerts from Kafka into an object store backend.
 optional arguments:
   -h, --help            show this help message and exit
   --gcp-project GCP_PROJECT
-                        when using the google-cloud backend, the name of the
-                        GCP project (default: alert-stream)
+                        when using the google-cloud backend, the name of the GCP
+                        project (default: alert-stream)
   --gcp-bucket GCP_BUCKET
-                        when using the google-cloud backend, the name of the
-                        Google Cloud Storage bucket (default: rubin-alert-
-                        archive)
+                        when using the google-cloud backend, the name of the Google
+                        Cloud Storage bucket (default: rubin-alert-archive)
   --kafka-host KAFKA_HOST
                         kafka host with alert data (default: alertbroker-
                         scratch.lsst.codes)
   --kafka-topic KAFKA_TOPIC
-                        name of the Kafka topic with alert data (default:
-                        alerts)
+                        name of the Kafka topic with alert data (default: alerts)
   --kafka-group KAFKA_GROUP
                         Name of a Kafka Consumer group to run under (default:
                         alertdb-ingester)
+  --kafka-auth-mechanism {mtls,scram}
+                        Kafka authentication mechanism to use (default: scram)
   --kafka-username KAFKA_USERNAME
-                        Username to use when connecting to Kafka (default:
-                        admin)
+                        Username to use when connecting to Kafka. Only used if
+                        --kafka-auth-mechanism=ssl (default: admin)
+  --tls-client-key-location TLS_CLIENT_KEY_LOCATION
+                        Path to a client PEM key used for mTLS authentication. Only
+                        used if --kafka-auth-mechanism=scram. (default: )
+  --tls-client-crt-location TLS_CLIENT_CRT_LOCATION
+                        Path to a client public cert used for mTLS authentication.
+                        Only used if --kafka-auth-mechanism=scram. (default: )
+  --tls-server-ca-crt-location TLS_SERVER_CA_CRT_LOCATION
+                        Path to a CA public cert used to verify the server's TLS
+                        cert. Only used if --kafka-auth-mechanism=scram. (default: )
   --schema-registry-host SCHEMA_REGISTRY_HOST
                         Address of a Confluent Schema Registry server hosting
                         schemas (default: alertschemas-scratch.lsst.codes)
