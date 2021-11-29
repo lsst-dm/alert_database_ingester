@@ -71,7 +71,7 @@ class IngesterIntegrationTest(unittest.TestCase):
         bucket, and Schema Registry.
         """
         kafka_group = "alert_ingest_integration_test_group"
-        kafka_params = KafkaConnectionParams(
+        kafka_params = KafkaConnectionParams.with_scram(
             self.kafka_hostport,
             self.topic_name,
             kafka_group,
