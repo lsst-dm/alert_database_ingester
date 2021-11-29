@@ -79,7 +79,7 @@ class IngesterIntegrationTest(unittest.TestCase):
             self.kafka_password,
         )
         backend = GoogleObjectStorageBackend(self.gcp_project, self.bucket_name)
-        registry = SchemaRegistryClient(self.registry_hostport)
+        registry = SchemaRegistryClient("https://" + self.registry_hostport)
 
         worker = IngestWorker(kafka_params, backend, registry)
 
@@ -271,6 +271,7 @@ class IngesterIntegrationTest(unittest.TestCase):
                 "schema registry URL's required format is "
                 + "'https://USERNAME:PASSWORD@HOSTNAME[:PORT]'"
             )
+        cls.registry_address = registry_url
         cls.registry_username = parsed_url.username
         cls.registry_password = parsed_url.password
         cls.registry_hostport = parsed_url.hostname
