@@ -68,9 +68,9 @@ optional arguments:
   --tls-server-ca-crt-location TLS_SERVER_CA_CRT_LOCATION
                         Path to a CA public cert used to verify the server's TLS
                         cert. Only used if --kafka-auth-mechanism=scram. (default: )
-  --schema-registry-host SCHEMA_REGISTRY_HOST
+  --schema-registry-address SCHEMA_REGISTRY_ADDRESS
                         Address of a Confluent Schema Registry server hosting
-                        schemas (default: alertschemas-scratch.lsst.codes)
+                        schemas (default: https://alertschemas-scratch.lsst.codes:443)
 ```
 
 The ingester needs a Kafka password. It gets this from you via an environment variable, `ALERTDB_KAFKA_PASSWORD`.
