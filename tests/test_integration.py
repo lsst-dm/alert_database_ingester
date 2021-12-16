@@ -59,7 +59,7 @@ class IngesterIntegrationTest(unittest.TestCase):
             - a test Kafka topic
             - a schema in the schema registry
         """
-        cls._create_test_bucket()
+        cls._create_test_buckets()
         cls._set_kafka_creds()
         cls._create_test_topic()
         cls._load_schema_registry_creds()
@@ -78,7 +78,9 @@ class IngesterIntegrationTest(unittest.TestCase):
             self.kafka_username,
             self.kafka_password,
         )
-        backend = GoogleObjectStorageBackend(self.gcp_project, self.bucket_name)
+        backend = GoogleObjectStorageBackend(
+            self.gcp_project, self.alert_bucket_name, self.schema_bucket_name
+        )
         registry = SchemaRegistryClient("https://" + self.registry_hostport)
 
         worker = IngestWorker(kafka_params, backend, registry)
@@ -101,7 +103,7 @@ class IngesterIntegrationTest(unittest.TestCase):
         # Each of the 5 alert should be uploaded.
         for message in messages:
             blob_url = f"/alert_archive/v1/alerts/{message['alertId']}.avro.gz"
-            assert backend.bucket.blob(blob_url).exists()
+            assert backend.alert_bucket.blob(blob_url).exists()
 
     async def publish_alerts(self, alerts):
         # Publish alerts to the Kafka broker.
@@ -166,15 +168,24 @@ class IngesterIntegrationTest(unittest.TestCase):
         }
 
     @classmethod
-    def _create_test_bucket(cls):
+    def _create_test_buckets(cls):
         """
-        Create a bucket named 'alert_ingest_integration_test_bucket' and
-        register a cleanup function when the test exits for any reason.
+        Create test buckets for alerts and schemas.
         """
         gcp_project = _load_required_env_var("gcp_project")
         client = gcs.Client(project=gcp_project)
+        cls.gcp_project = gcp_project
 
-        bucket_name = "alert_ingest_integration_test_bucket"
+        cls._create_alert_test_bucket(client)
+        cls._create_schema_test_bucket(client)
+
+    @classmethod
+    def _create_alert_test_bucket(cls, client):
+        """
+        Create a bucket named 'alert_ingest_integration_test_bucket_alerts' and
+        register a cleanup function when the test exits for any reason.
+        """
+        bucket_name = "alert_ingest_integration_test_bucket_alerts"
         logger.info("creating bucket %s", bucket_name)
         try:
             bucket = client.create_bucket(bucket_name)
@@ -187,8 +198,28 @@ class IngesterIntegrationTest(unittest.TestCase):
             bucket.delete(force=True)
 
         cls.addClassCleanup(delete_bucket)
-        cls.gcp_project = gcp_project
-        cls.bucket_name = bucket_name
+        cls.alert_bucket_name = bucket_name
+
+    @classmethod
+    def _create_schema_test_bucket(cls, client):
+        """
+        Create a bucket named 'alert_ingest_integration_test_bucket_schemas'
+        and register a cleanup function when the test exits for any reason.
+        """
+        bucket_name = "alert_ingest_integration_test_bucket_schemas"
+        logger.info("creating bucket %s", bucket_name)
+        try:
+            bucket = client.create_bucket(bucket_name)
+        except google.api_core.exceptions.Conflict:
+            logger.warning("bucket already exists!")
+            bucket = client.bucket(bucket_name)
+
+        def delete_bucket():
+            logger.info("deleting bucket %s", bucket_name)
+            bucket.delete(force=True)
+
+        cls.addClassCleanup(delete_bucket)
+        cls.schema_bucket_name = bucket_name
 
     @classmethod
     def _set_kafka_creds(cls):
