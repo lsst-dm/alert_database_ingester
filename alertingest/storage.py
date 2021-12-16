@@ -73,25 +73,28 @@ class GoogleObjectStorageBackend(AlertDatabaseBackend):
     assumes that schemas are never deleted from the bucket.
     """
 
-    def __init__(self, gcp_project: str, bucket_name: str):
+    def __init__(
+        self, gcp_project: str, alert_bucket_name: str, schema_bucket_name: str
+    ):
         self.object_store_client = gcs.Client(project=gcp_project)
-        self.bucket = self.object_store_client.bucket(bucket_name)
+        self.alert_bucket = self.object_store_client.bucket(alert_bucket_name)
+        self.schema_bucket = self.object_store_client.bucket(schema_bucket_name)
         self.known_schemas: Set[int] = set()
 
     def store_alert(self, alert_id: int, alert_payload: bytes):
         compressed_payload = gzip.compress(alert_payload)
-        blob = self.bucket.blob(f"/alert_archive/v1/alerts/{alert_id}.avro.gz")
+        blob = self.alert_bucket.blob(f"/alert_archive/v1/alerts/{alert_id}.avro.gz")
         blob.upload_from_string(compressed_payload)
 
     def store_schema(self, schema_id: int, encoded_schema: bytes):
-        blob = self.bucket.blob(f"/alert_archive/v1/schemas/{schema_id}.json")
+        blob = self.schema_bucket.blob(f"/alert_archive/v1/schemas/{schema_id}.json")
         blob.upload_from_string(encoded_schema)
         self.known_schemas.add(schema_id)
 
     def schema_exists(self, schema_id: int):
         if schema_id in self.known_schemas:
             return True
-        blob = self.bucket.blob(f"/alert_archive/v1/schemas/{schema_id}.json")
+        blob = self.schema_bucket.blob(f"/alert_archive/v1/schemas/{schema_id}.json")
         if blob.exists():
             self.known_schemas.add(schema_id)
             return True

@@ -20,10 +20,16 @@ def main():
         help="when using the google-cloud backend, the name of the GCP project",
     )
     parser.add_argument(
-        "--gcp-bucket",
+        "--gcp-bucket-alerts",
         type=str,
-        default="rubin-alert-archive",
-        help="when using the google-cloud backend, the name of the Google Cloud Storage bucket",
+        default="alert-packets",
+        help="when using the google-cloud backend, the name of the GCS bucket for alert packets",
+    )
+    parser.add_argument(
+        "--gcp-bucket-schemas",
+        type=str,
+        default="alert-schemas",
+        help="when using the google-cloud backend, the name of the GCS bucket for alert schemas",
     )
     parser.add_argument(
         "--kafka-host",
@@ -111,7 +117,11 @@ def main():
     else:
         raise AssertionError("--kafka-auth-mechanism must be either scram or mtls")
 
-    backend = GoogleObjectStorageBackend(args.gcp_project, args.gcp_bucket)
+    backend = GoogleObjectStorageBackend(
+        args.gcp_project,
+        args.gcp_bucket_alerts,
+        args.gcp_bucket_schemas,
+    )
     registry = SchemaRegistryClient(args.schema_registry_address)
 
     worker = IngestWorker(kafka_params, backend, registry)
