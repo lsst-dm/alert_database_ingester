@@ -6,7 +6,6 @@ import avroc
 import requests
 
 logger = logging.getLogger(__name__)
-logger.setLevel(logging.DEBUG)
 
 
 Decoder = Callable[[IO[bytes]], Any]
