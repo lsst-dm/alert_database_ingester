@@ -1,5 +1,6 @@
 import argparse
 import asyncio
+import logging
 import os
 
 from alertingest.ingester import IngestWorker, KafkaConnectionParams
@@ -95,7 +96,17 @@ def main():
         default="https://alertschemas-scratch.lsst.codes:443",
         help="Address of a Confluent Schema Registry server hosting schemas",
     )
+    parser.add_argument("--verbose", type="store_true", help="log a bunch")
+    parser.add_argument("--debug", type="store_true", help="log even more")
+
     args = parser.parse_args()
+
+    if args.debug:
+        logging.basicConfig(level=logging.DEBUG)
+    elif args.verbose:
+        logging.basicConfig(level=logging.INFO)
+    else:
+        logging.basicConfig(level=logging.WARNING)
 
     if args.kafka_auth_mechanism == "scram":
         kafka_params = KafkaConnectionParams.with_scram(

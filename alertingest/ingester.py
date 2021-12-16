@@ -15,7 +15,6 @@ from alertingest.schema_registry import SchemaRegistryClient
 from alertingest.storage import AlertDatabaseBackend
 
 logger = logging.getLogger(__name__)
-logger.level = logging.DEBUG
 
 
 @dataclass
@@ -138,9 +137,9 @@ class IngestWorker:
             n = 0
             logger.info("ingest worker run loop start")
             async for msg in consumer:
-                logger.info("ingest worker received a message")
+                logger.debug("ingest worker received a message")
                 self.handle_kafka_message(msg)
-                logger.info("handle complete")
+                logger.debug("handle complete")
                 since_last_commit += 1
                 if since_last_commit == commit_interval:
                     logger.info("committing position in stream")
@@ -198,7 +197,7 @@ class IngestWorker:
         schema in the backend if it is not already present. Stores the alert
         packet in the backend always.
         """
-        logger.info("handle start")
+        logger.debug("handle start")
         raw_msg = msg.value
         schema_id, alert_id = self._parse_alert_msg(raw_msg)
         logger.debug("handling msg schema_id=%s alert_id=%s", schema_id, alert_id)
@@ -213,7 +212,7 @@ class IngestWorker:
         # return schema_id, alert_id from alert payload
         schema_id = _read_confluent_wire_format_header(raw_msg)
 
-        logger.info("read schema ID %s, getting decoder", schema_id)
+        logger.debug("read schema ID %s, getting decoder", schema_id)
         decoder = self.schema_registry.get_schema_decoder(schema_id)
 
         decoded = decoder(io.BytesIO(raw_msg[5:]))
