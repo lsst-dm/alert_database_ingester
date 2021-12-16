@@ -96,8 +96,8 @@ def main():
         default="https://alertschemas-scratch.lsst.codes:443",
         help="Address of a Confluent Schema Registry server hosting schemas",
     )
-    parser.add_argument("--verbose", type="store_true", help="log a bunch")
-    parser.add_argument("--debug", type="store_true", help="log even more")
+    parser.add_argument("--verbose", action="store_true", help="log a bunch")
+    parser.add_argument("--debug", action="store_true", help="log even more")
 
     args = parser.parse_args()
 
