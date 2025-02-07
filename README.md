@@ -17,7 +17,7 @@ Clone, and install with pip (probably in a virtualenv):
 ```
 git clone git@github.com:lsst-dm/alert_database_ingester.git
 cd alert_database_ingester
-python -m virtualenv virtualenv
+python -m venv virtualenv
 source virtualenv/bin/activate
 pip install .
 ```
@@ -26,7 +26,8 @@ pip install .
 
 The ingester is installed by `pip` as a command named `alertdb-ingester`:
 ```
-usage: alertdb-ingester [-h] [--gcp-project GCP_PROJECT] [--gcp-bucket GCP_BUCKET]
+usage: alertdb-ingester [-h] [--endpoint-url ENDPOINT_URL]
+                        [--bucket-alerts BUCKET_ALERTS] [--bucket-schemas BUCKET_SCHEMAS]
                         [--kafka-host KAFKA_HOST] [--kafka-topic KAFKA_TOPIC]
                         [--kafka-group KAFKA_GROUP]
                         [--kafka-auth-mechanism {mtls,scram}]
@@ -40,17 +41,13 @@ Run a worker to copy alerts from Kafka into an object store backend.
 
 optional arguments:
   -h, --help            show this help message and exit
-  --gcp-project GCP_PROJECT
-                        when using the google-cloud backend, the name of the GCP
-                        project (default: alert-stream)
-  --gcp-bucket GCP_BUCKET
-                        when using the google-cloud backend, the name of the Google
-                        Cloud Storage bucket (default: rubin-alert-archive)
+  --endpoint-url ENDPOINT_URL
+                        when using a remote bucket, the url where the bucket is
+                        located.
   --kafka-host KAFKA_HOST
-                        kafka host with alert data (default: alertbroker-
-                        scratch.lsst.codes)
+                        kafka host with alert data (default: usdf-alert-stream-dev.lsst.cloud:9094)
   --kafka-topic KAFKA_TOPIC
-                        name of the Kafka topic with alert data (default: alerts)
+                        name of the Kafka topic with alert data (default: alerts-simulated)
   --kafka-group KAFKA_GROUP
                         Name of a Kafka Consumer group to run under (default:
                         alertdb-ingester)
@@ -70,7 +67,7 @@ optional arguments:
                         cert. Only used if --kafka-auth-mechanism=scram. (default: )
   --schema-registry-address SCHEMA_REGISTRY_ADDRESS
                         Address of a Confluent Schema Registry server hosting
-                        schemas (default: https://alertschemas-scratch.lsst.codes:443)
+                        schemas (default: https://usdf-alert-schemas-dev.slac.stanford.edu)
 ```
 
 The ingester needs a Kafka password. It gets this from you via an environment variable, `ALERTDB_KAFKA_PASSWORD`.
@@ -123,5 +120,16 @@ export ALERT_INGEST_TEST_REGISTRY_URL=https://username:password@alertschemas-scr
 export ALERT_INGEST_TEST_GCP_PROJECT=alert-stream
 ```
 
-Then, `pytest .` will run the integration tests, which create temporary Kafka,
-Google Cloud, and Schema Registry resources and run against them.
+Then, `pytest .` will run the integration tests, which create temporary Kafka
+and Schema Registry resources and run against them. You must have a test bucket created to run tests using
+minio.
+
+If running in a new test environment, you will need to install
+
+pip install lsst-alert-packet
+pip install --upgrade kafka-python
+pip install aiokafka
+pip install pytest
+
+And you will need to run the tests using
+env pytest TEST_NAME

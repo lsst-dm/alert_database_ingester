@@ -1,11 +1,14 @@
 """
 Implementations of backend storage systems for the alert database server.
 """
+
 import abc
 import gzip
-from typing import Set
+import logging
+from typing import Any, Set
 
-import google.cloud.storage as gcs
+import boto3
+from botocore.config import Config
 
 
 class AlertDatabaseBackend(abc.ABC):
@@ -63,7 +66,7 @@ class AlertDatabaseBackend(abc.ABC):
         raise NotImplementedError()
 
 
-class GoogleObjectStorageBackend(AlertDatabaseBackend):
+class USDFObjectStorageBackend(AlertDatabaseBackend):
     """
     Stores alerts and schemas in a Google Cloud Storage bucket.
 
@@ -74,28 +77,79 @@ class GoogleObjectStorageBackend(AlertDatabaseBackend):
     """
 
     def __init__(
-        self, gcp_project: str, alert_bucket_name: str, schema_bucket_name: str
+        self,
+        alert_bucket_name: str,
+        schema_bucket_name: str,
+        s3_client: Any | None = None,
+        endpoint_url: str | None = None,
     ):
-        self.object_store_client = gcs.Client(project=gcp_project)
-        self.alert_bucket = self.object_store_client.bucket(alert_bucket_name)
-        self.schema_bucket = self.object_store_client.bucket(schema_bucket_name)
+
+        # Provided s3_client used during unit testing.
+        self.object_store_client = s3_client or self.create_client(
+            endpoint_url=endpoint_url
+        )
+        self.packet_bucket = alert_bucket_name
+        self.schema_bucket = schema_bucket_name
         self.known_schemas: Set[int] = set()
 
-    def store_alert(self, alert_id: int, alert_payload: bytes):
-        compressed_payload = gzip.compress(alert_payload)
-        blob = self.alert_bucket.blob(f"/alert_archive/v1/alerts/{alert_id}.avro.gz")
-        blob.upload_from_string(compressed_payload)
+    def create_client(self, endpoint_url: str | None = None):
+        s3_client = boto3.client(
+            "s3",
+            endpoint_url=endpoint_url,
+            config=Config(
+                request_checksum_calculation="when_required",
+                response_checksum_validation="when_required",
+            ),
+        )
+        return s3_client
+
+    def store_alert(
+        self, alert_id: int, alert_payload: bytes, compression: bool = False
+    ):
+
+        if compression:
+            alert_payload = gzip.compress(alert_payload)
+            alert_key = f"/v1/alerts/{alert_id}.avro.gz"
+        else:
+            alert_key = f"/v1/alerts/{alert_id}.avro"
+        try:
+            response = self.object_store_client.put_object(
+                Bucket=self.packet_bucket, Key=alert_key, Body=alert_payload
+            )
+            return response
+        except self.object_store_client.exceptions.ClientError as e:
+            if e.response["Error"]["Code"] == "409":
+                logging.warning(
+                    "Alert archive bucket is full. Contact USDF for more space."
+                )
+            if e.response["Error"]["Code"] == "404":
+                logging.warning(
+                    "Cannot reach alert archive. Check alert archive servr status."
+                )
+            raise e
 
     def store_schema(self, schema_id: int, encoded_schema: bytes):
-        blob = self.schema_bucket.blob(f"/alert_archive/v1/schemas/{schema_id}.json")
-        blob.upload_from_string(encoded_schema)
+        schema_key = f"/v1/schemas/{schema_id}.json"
+
+        try:
+            self.object_store_client.put_object(
+                Bucket=self.schema_bucket, Key=schema_key, Body=encoded_schema
+            )
+        except self.object_store_client.exceptions.ClientError as e:
+            logging.warning("Schema could not be stored.")
+            raise e
         self.known_schemas.add(schema_id)
 
     def schema_exists(self, schema_id: int):
         if schema_id in self.known_schemas:
             return True
-        blob = self.schema_bucket.blob(f"/alert_archive/v1/schemas/{schema_id}.json")
-        if blob.exists():
+        schema_key = f"/v1/schemas/{schema_id}.json"
+        try:
+            self.object_store_client.get_object(
+                Bucket=self.schema_bucket, Key=schema_key
+            )
             self.known_schemas.add(schema_id)
             return True
-        return False
+        except self.object_store_client.exceptions.ClientError:
+            logging.warning("Schema not in schema bucket.")
+            return False

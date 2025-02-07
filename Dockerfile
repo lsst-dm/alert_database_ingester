@@ -1,4 +1,4 @@
-FROM python:3.9.7-buster AS base-image
+FROM python:3.11-buster AS base-image
 
 # Install system dependencies
 RUN apt-get update -y && apt-get install -y libsnappy-dev

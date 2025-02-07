@@ -12,7 +12,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v2
         with:
-          python-version: 3.8
+          python-version: 3.11
 
       - name: Install package
         run: pip install .[dev]
@@ -28,38 +28,10 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v2
         with:
-          python-version: 3.8
+          python-version: 3.11
 
       - name: Install package
         run: pip install .[dev]
 
       - name: Run unit tests
         run: pytest --log-format="%(asctime)s %(levelname)s %(message)s" --log-date-format="%Y-%m-%d %H:%M:%S"
-
-  integration-test:
-    runs-on: ubuntu-latest
-    concurrency: integration-test
-    steps:
-      - uses: actions/checkout@v2
-
-      - name: Set up Python
-        uses: actions/setup-python@v2
-        with:
-          python-version: 3.8
-
-      - name: Install package
-        run: pip install .[dev]
-
-      - name: Set up cloud SDK
-        uses: google-github-actions/setup-gcloud@master
-        with:
-          project_id: ${{ secrets.GCP_PROJECT_ID }}
-          service_account_key: ${{ secrets.GCP_SA_KEY }}
-          export_default_credentials: true
-
-      - name: Run integration tests
-        run: pytest --log-format="%(asctime)s %(levelname)s %(message)s" --log-date-format="%Y-%m-%d %H:%M:%S"
-        env:
-          ALERT_INGEST_TEST_GCP_PROJECT: ${{ secrets.GCP_PROJECT_ID }}
-          ALERT_INGEST_TEST_KAFKA_URL: ${{ secrets.KAFKA_TEST_URL }}
-          ALERT_INGEST_TEST_REGISTRY_URL: ${{ secrets.KAFKA_REGISTRY_URL }}

@@ -18,11 +18,14 @@ class SchemaRegistryClient:
 
     def get_raw_schema(self, schema_id: int) -> bytes:
         url = f"{self.address}/schemas/ids/{schema_id}"
-        logger.debug("making request to %s", url)
-        response = requests.get(url, timeout=5)
-        response.raise_for_status()
-        parsed_body = json.loads(response.content)
-        return parsed_body["schema"]
+        try:
+            logger.debug("making request to %s", url)
+            response = requests.get(url, timeout=5)
+            response.raise_for_status()
+            parsed_body = json.loads(response.content)
+            return parsed_body["schema"]
+        except requests.exceptions.HTTPError:
+            raise KeyError(f"Schema ID {schema_id} not found")
 
     def get_schema_decoder(self, schema_id: int) -> Decoder:
         # If we've already constructed a decoder, use it.
