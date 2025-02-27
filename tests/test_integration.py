@@ -7,15 +7,13 @@ import struct
 import unittest
 import urllib
 
-import aiohttp
+import boto3
 import fastavro
-import google.api_core.exceptions
-import google.cloud.storage as gcs
 import kafka.errors
 import lsst.alert.packet
 from aiokafka import AIOKafkaProducer
+from botocore.exceptions import ClientError
 from kafka.admin import KafkaAdminClient, NewTopic
-from kafkit.registry.aiohttp import RegistryApi
 from lsst.alert.packet.simulate import (
     randomDouble,
     randomFloat,
@@ -26,7 +24,7 @@ from lsst.alert.packet.simulate import (
 
 from alertingest.ingester import IngestWorker, KafkaConnectionParams
 from alertingest.schema_registry import SchemaRegistryClient
-from alertingest.storage import GoogleObjectStorageBackend
+from alertingest.storage import USDFObjectStorageBackend
 
 logger = logging.getLogger(__name__)
 logger.level = logging.DEBUG
@@ -35,7 +33,7 @@ logger.level = logging.DEBUG
 _required_env_vars = {
     "kafka_url": "ALERT_INGEST_TEST_KAFKA_URL",
     "registry_url": "ALERT_INGEST_TEST_REGISTRY_URL",
-    "gcp_project": "ALERT_INGEST_TEST_GCP_PROJECT",
+    "endpoint_url": "AWS_ENDPOINT_URL",
 }
 
 
@@ -62,15 +60,18 @@ class IngesterIntegrationTest(unittest.TestCase):
         cls._create_test_buckets()
         cls._set_kafka_creds()
         cls._create_test_topic()
+        cls._setup_test_schema()
         cls._load_schema_registry_creds()
-        cls._register_test_schema()
 
     def test_integration(self):
         """
         Run the ingester against a real Kafka topic, Google Cloud Storage
         bucket, and Schema Registry.
         """
+        # This will be swapped to a MOCK since we shouldnt be testing again
+        # a real setup
         kafka_group = "alert_ingest_integration_test_group"
+        endpoint_url = _load_required_env_var("endpoint_url")
         kafka_params = KafkaConnectionParams.with_scram(
             self.kafka_hostport,
             self.topic_name,
@@ -78,8 +79,11 @@ class IngesterIntegrationTest(unittest.TestCase):
             self.kafka_username,
             self.kafka_password,
         )
-        backend = GoogleObjectStorageBackend(
-            self.gcp_project, self.alert_bucket_name, self.schema_bucket_name
+        backend = USDFObjectStorageBackend(
+            alert_bucket_name=self.alert_bucket_name,
+            schema_bucket_name=self.schema_bucket_name,
+            endpoint_url=endpoint_url,
+            s3_client=None,
         )
         registry = SchemaRegistryClient("https://" + self.registry_hostport)
 
@@ -102,8 +106,10 @@ class IngesterIntegrationTest(unittest.TestCase):
 
         # Each of the 5 alert should be uploaded.
         for message in messages:
-            blob_url = f"/alert_archive/v1/alerts/{message['alertId']}.avro.gz"
-            assert backend.alert_bucket.blob(blob_url).exists()
+            blob_url = f"/v1/alerts/{message['alertId']}.avro"
+            s3_client = boto3.client("s3", endpoint_url=endpoint_url)
+            response = s3_client.get_object(Bucket=self.alert_bucket_name, Key=blob_url)
+            self.assertEqual(response["ResponseMetadata"]["HTTPStatusCode"], 200)
 
     async def publish_alerts(self, alerts):
         # Publish alerts to the Kafka broker.
@@ -113,9 +119,8 @@ class IngesterIntegrationTest(unittest.TestCase):
             bootstrap_servers=self.kafka_hostport,
             sasl_plain_username=self.kafka_username,
             sasl_plain_password=self.kafka_password,
-            sasl_mechanism="SCRAM-SHA-256",
-            security_protocol="SASL_SSL",
-            ssl_context=ssl_ctx,
+            sasl_mechanism="SCRAM-SHA-512",
+            security_protocol="SASL_PLAINTEXT",
         )
         await producer.start()
         try:
@@ -172,51 +177,56 @@ class IngesterIntegrationTest(unittest.TestCase):
         """
         Create test buckets for alerts and schemas.
         """
-        gcp_project = _load_required_env_var("gcp_project")
-        client = gcs.Client(project=gcp_project)
-        cls.gcp_project = gcp_project
+        endpoint_url = _load_required_env_var("endpoint_url")
+        s3 = boto3.client("s3", endpoint_url=endpoint_url)
+        s3_resource = boto3.resource("s3")
 
-        cls._create_alert_test_bucket(client)
-        cls._create_schema_test_bucket(client)
+        cls._create_alert_test_bucket(s3, s3_resource)
+        cls._create_schema_test_bucket(s3, s3_resource)
 
     @classmethod
-    def _create_alert_test_bucket(cls, client):
+    def _create_alert_test_bucket(cls, s3, s3_resource):
         """
         Create a bucket named 'alert_ingest_integration_test_bucket_alerts' and
         register a cleanup function when the test exits for any reason.
         """
-        bucket_name = "alert_ingest_integration_test_bucket_alerts"
+        bucket_name = "alert-ingest-integration-test-bucket-alerts"
+
         logger.info("creating bucket %s", bucket_name)
         try:
-            bucket = client.create_bucket(bucket_name)
-        except google.api_core.exceptions.Conflict:
+            s3.create_bucket(Bucket=bucket_name)
+            bucket = s3_resource.Bucket(bucket_name)
+        except ClientError:
             logger.warning("bucket already exists!")
-            bucket = client.bucket(bucket_name)
+            bucket = s3_resource.Bucket(bucket_name)
 
         def delete_bucket():
             logger.info("deleting bucket %s", bucket_name)
-            bucket.delete(force=True)
+            bucket.objects.all().delete()
+            bucket.delete()
 
         cls.addClassCleanup(delete_bucket)
         cls.alert_bucket_name = bucket_name
 
     @classmethod
-    def _create_schema_test_bucket(cls, client):
+    def _create_schema_test_bucket(cls, s3, s3_resource):
         """
-        Create a bucket named 'alert_ingest_integration_test_bucket_schemas'
+        Create a bucket named 'alert-ingest-integration-test-bucket-schemas'
         and register a cleanup function when the test exits for any reason.
         """
-        bucket_name = "alert_ingest_integration_test_bucket_schemas"
+        bucket_name = "alert-ingest-integration-test-bucket-schemas"
         logger.info("creating bucket %s", bucket_name)
         try:
-            bucket = client.create_bucket(bucket_name)
-        except google.api_core.exceptions.Conflict:
+            s3.create_bucket(Bucket=bucket_name)
+            bucket = s3_resource.Bucket(bucket_name)
+        except ClientError:
             logger.warning("bucket already exists!")
-            bucket = client.bucket(bucket_name)
+            bucket = s3_resource.Bucket(bucket_name)
 
         def delete_bucket():
             logger.info("deleting bucket %s", bucket_name)
-            bucket.delete(force=True)
+            bucket.objects.all().delete()
+            bucket.delete()
 
         cls.addClassCleanup(delete_bucket)
         cls.schema_bucket_name = bucket_name
@@ -243,7 +253,7 @@ class IngesterIntegrationTest(unittest.TestCase):
         cls.kafka_password = parsed_url.password
         cls.kafka_hostport = parsed_url.hostname
         if parsed_url.port is not None:
-            cls.kafka_hostport += ":" + parsed_url.port
+            cls.kafka_hostport += ":" + str(parsed_url.port)
 
     @classmethod
     def _create_test_topic(cls):
@@ -258,13 +268,12 @@ class IngesterIntegrationTest(unittest.TestCase):
         ssl_ctx.load_default_certs()
 
         client = KafkaAdminClient(
-            bootstrap_servers=[cls.kafka_hostport],
-            client_id="alert_database_ingester-integration-test",
+            bootstrap_servers=cls.kafka_hostport,
+            client_id="alert-database-ingester-integration-test",
             sasl_plain_username=cls.kafka_username,
             sasl_plain_password=cls.kafka_password,
-            sasl_mechanism="SCRAM-SHA-256",
-            security_protocol="SASL_SSL",
-            ssl_context=ssl_ctx,
+            sasl_mechanism="SCRAM-SHA-512",
+            security_protocol="SASL_PLAINTEXT",
         )
         cls.addClassCleanup(client.close)
 
@@ -310,46 +319,12 @@ class IngesterIntegrationTest(unittest.TestCase):
             cls.registry_hostport += ":" + parsed_url.port
 
     @classmethod
-    def _register_test_schema(cls):
+    def _setup_test_schema(cls):
         """
-        Register an alert schema in the Schema Registry. Delete it when the
-        test is done.
+        Setup a alert schema.
         """
         cls.schema = _load_test_schema()
-        schema_subject = "alert_ingest_integration_test_subject"
-        auth = aiohttp.BasicAuth(
-            login=cls.registry_username, password=cls.registry_password
-        )
-
-        async def register_schema():
-            async with aiohttp.ClientSession(auth=auth) as session:
-                reg = RegistryApi(
-                    session=session, url="https://" + cls.registry_hostport
-                )
-                logger.info("registering schema subject %s", schema_subject)
-                schema_id = await reg.register_schema(
-                    cls.schema, subject=schema_subject
-                )
-                cls.schema_id = schema_id
-                logger.info("schema registered with ID %s", schema_id)
-
-        async def delete_schema():
-            async with aiohttp.ClientSession(auth=auth) as session:
-                reg = RegistryApi(
-                    session=session, url="https://" + cls.registry_hostport
-                )
-                logger.info("deleting schema subject %s", schema_subject)
-                await reg.delete(f"/subjects/{schema_subject}?permanent=true")
-                logger.info("deletion complete")
-
-        def delete_schema_callback():
-            loop = asyncio.get_event_loop()
-            loop.run_until_complete(delete_schema())
-
-        loop = asyncio.get_event_loop()
-        loop.run_until_complete(register_schema())
-
-        cls.addClassCleanup(delete_schema_callback)
+        cls.schema_id = 300
 
 
 def _load_test_schema():

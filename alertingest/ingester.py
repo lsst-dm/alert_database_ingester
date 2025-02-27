@@ -1,6 +1,7 @@
 """
 A worker which copies alerts and schemas into an object store backend.
 """
+
 import io
 import logging
 import ssl
@@ -169,9 +170,9 @@ class IngestWorker:
             group_id=self.kafka_params.group,
             sasl_plain_username=self.kafka_params.username,
             sasl_plain_password=self.kafka_params.password,
-            sasl_mechanism="SCRAM-SHA-256",
-            security_protocol="SASL_SSL",
-            ssl_context=ssl_ctx,
+            sasl_mechanism="SCRAM-SHA-512",
+            security_protocol="SASL_PLAINTEXT",
+            ssl_context=None,
             enable_auto_commit=False,
             auto_offset_reset=auto_offset_reset,
         )

@@ -5,7 +5,7 @@ import os
 
 from alertingest.ingester import IngestWorker, KafkaConnectionParams
 from alertingest.schema_registry import SchemaRegistryClient
-from alertingest.storage import GoogleObjectStorageBackend
+from alertingest.storage import USDFObjectStorageBackend
 
 
 def main():
@@ -15,33 +15,33 @@ def main():
         description="Run a worker to copy alerts from Kafka into an object store backend.",
     )
     parser.add_argument(
-        "--gcp-project",
+        "--endpoint-url",
         type=str,
-        default="alert-stream",
-        help="when using the google-cloud backend, the name of the GCP project",
+        default=None,
+        help="when using a remote bucket, the url where the bucket is located",
     )
     parser.add_argument(
-        "--gcp-bucket-alerts",
+        "--bucket-alerts",
         type=str,
-        default="alert-packets",
-        help="when using the google-cloud backend, the name of the GCS bucket for alert packets",
+        default="alerts",
+        help="when using the usdf backend, the name of the s3 bucket for alert packets",
     )
     parser.add_argument(
-        "--gcp-bucket-schemas",
+        "--bucket-schemas",
         type=str,
-        default="alert-schemas",
-        help="when using the google-cloud backend, the name of the GCS bucket for alert schemas",
+        default="schema",
+        help="when using the usdf backend, the name of the s3 bucket for alert schemas",
     )
     parser.add_argument(
         "--kafka-host",
         type=str,
-        default="alertbroker-scratch.lsst.codes",
+        default="usdf-alert-stream-dev.lsst.cloud:9094",
         help="kafka host with alert data",
     )
     parser.add_argument(
         "--kafka-topic",
         type=str,
-        default="alerts",
+        default="alerts-simulated",
         help="name of the Kafka topic with alert data",
     )
     parser.add_argument(
@@ -60,7 +60,7 @@ def main():
     parser.add_argument(
         "--kafka-username",
         type=str,
-        default="admin",
+        default="kafka-admin",
         help="Username to use when connecting to Kafka. Only used if --kafka-auth-mechanism=ssl",
     )
     parser.add_argument(
@@ -93,11 +93,11 @@ def main():
     parser.add_argument(
         "--schema-registry-address",
         type=str,
-        default="https://alertschemas-scratch.lsst.codes:443",
+        default="https://usdf-alert-schemas-dev.slac.stanford.edu",
         help="Address of a Confluent Schema Registry server hosting schemas",
     )
-    parser.add_argument("--verbose", type="store_true", help="log a bunch")
-    parser.add_argument("--debug", type="store_true", help="log even more")
+    parser.add_argument("--verbose", action="store_true", help="log a bunch")
+    parser.add_argument("--debug", action="store_true", help="log even more")
 
     args = parser.parse_args()
 
@@ -128,10 +128,10 @@ def main():
     else:
         raise AssertionError("--kafka-auth-mechanism must be either scram or mtls")
 
-    backend = GoogleObjectStorageBackend(
-        args.gcp_project,
-        args.gcp_bucket_alerts,
-        args.gcp_bucket_schemas,
+    backend = USDFObjectStorageBackend(
+        endpoint_url=args.endpoint_url,
+        alert_bucket_name=args.bucket_alerts,
+        schema_bucket_name=args.bucket_schemas,
     )
     registry = SchemaRegistryClient(args.schema_registry_address)
 
