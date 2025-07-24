@@ -64,7 +64,7 @@ class TestUSDFObjectStorageBackend(unittest.TestCase):
 
         expected_params = {
             "Bucket": "fake_alert_bucket",
-            "Key": "/v1/alerts/1.avro",
+            "Key": "v1/alerts/1.avro",
             "Body": self.alert_payload,
         }
         self.stubber.activate()
@@ -91,7 +91,7 @@ class TestUSDFObjectStorageBackend(unittest.TestCase):
 
         expected_params = {
             "Bucket": "fake_schema_bucket",
-            "Key": "/v1/schemas/1.json",
+            "Key": "v1/schemas/1.json",
             "Body": self.encoded_schema,
         }
 
@@ -99,24 +99,6 @@ class TestUSDFObjectStorageBackend(unittest.TestCase):
         self.stubber.add_response("put_object", put_response, expected_params)
         self.backend.store_schema(1, self.encoded_schema)
         self.assertIn(1, self.backend.known_schemas)
-        self.stubber.deactivate()
-
-    @patch("logging.warning")
-    def test_store_schema_fail_bucket(self, mock_warning):
-        self.stubber.activate()
-        self.stubber.add_client_error(
-            "put_object",
-            service_message="NoSuchBucket",
-            service_error_code="NoSuchBucket",
-        )
-        try:
-            self.backend.store_schema(1, self.encoded_schema)
-            self.fail("Expected ClientError not raised")
-        except ClientError as e:
-            self.assertEqual(e.response["Error"]["Code"], "NoSuchBucket")
-            self.assertEqual(e.response["Error"]["Message"], "NoSuchBucket")
-            self.assertEqual(e.response["ResponseMetadata"]["HTTPStatusCode"], 400)
-            mock_warning.assert_called_once_with("Schema could not be stored.")
         self.stubber.deactivate()
 
     def test_schema_exists_retrieve_true(self):
@@ -129,7 +111,7 @@ class TestUSDFObjectStorageBackend(unittest.TestCase):
 
         expected_params = {
             "Bucket": "fake_schema_bucket",
-            "Key": "/v1/schemas/3.json",
+            "Key": "v1/schemas/3.json",
         }
         # Test schema wasn't stored in known schemas but was retrieved
         # and added
@@ -148,6 +130,115 @@ class TestUSDFObjectStorageBackend(unittest.TestCase):
         response = self.backend.schema_exists(1)
         self.assertFalse(response)
         mock_warning.assert_called_once_with("Schema not in schema bucket.")
+        self.stubber.deactivate()
+
+    @patch("logging.warning")
+    def test_handle_s3_error_409(self, mock_warning):
+        """Test handling of 409 (bucket full) error."""
+        self.stubber.activate()
+        self.stubber.add_client_error(
+            "put_object",
+            service_error_code="409",
+            service_message="Bucket Full",
+            http_status_code=409,
+            response_meta={"RequestId": "test-request-id"},
+        )
+
+        with self.assertRaises(ClientError):
+            self.backend.store_alert(1, self.alert_payload)
+
+        mock_warning.assert_called_once_with(
+            "Alert bucket 'fake_alert_bucket' is full. "
+            "Contact USDF for more space.\n"
+            "Alert ID: 1\n"
+            "Path: v1/alerts/1.avro\n"
+            "Error Code: 409\n"
+            "Message: Bucket Full\n"
+            "Status Code: 409\n"
+            "Request ID: test-request-id"
+        )
+        self.stubber.deactivate()
+
+    @patch("logging.warning")
+    def test_handle_s3_error_404(self, mock_warning):
+        """Test handling of 404 (not found) error."""
+
+        self.stubber.activate()
+        self.stubber.add_client_error(
+            "put_object",
+            service_error_code="404",
+            service_message="Not Found",
+            http_status_code=404,
+            response_meta={"RequestId": "test-request-id"},
+        )
+
+        with self.assertRaises(ClientError):
+            self.backend.store_alert(1, self.alert_payload)
+
+        mock_warning.assert_called_once_with(
+            "Cannot reach alert bucket at 'fake_alert_bucket"
+            "v1/alerts/1.avro'.\n"
+            "Check alert bucket server status.\n"
+            "Alert ID: 1\n"
+            "Error Code: 404\n"
+            "Message: Not Found\n"
+            "Status Code: 404\n"
+            "Request ID: test-request-id"
+        )
+        self.stubber.deactivate()
+
+    @patch("logging.warning")
+    def test_handle_s3_error_generic(self, mock_warning):
+        """Test handling of generic error."""
+
+        self.stubber.activate()
+        self.stubber.add_client_error(
+            "put_object",
+            service_error_code="500",
+            service_message="Internal Server Error",
+            http_status_code=500,
+            response_meta={"RequestId": "test-request-id"},
+        )
+
+        with self.assertRaises(ClientError):
+            self.backend.store_alert(1, self.alert_payload)
+
+        mock_warning.assert_called_once_with(
+            "Failed to store alert in bucket 'fake_alert_bucket'.\n"
+            "Alert ID: 1\n"
+            "Path: v1/alerts/1.avro\n"
+            "Error Code: 500\n"
+            "Message: Internal Server Error\n"
+            "Status Code: 500\n"
+            "Request ID: test-request-id"
+        )
+        self.stubber.deactivate()
+
+    @patch("logging.warning")
+    def test_schema_store_error_handling(self, mock_warning):
+        """Test error handling in schema storage."""
+        self.stubber.activate()
+        self.stubber.add_client_error(
+            "put_object",
+            service_error_code="409",
+            service_message="Bucket Full",
+            http_status_code=409,
+            response_meta={"RequestId": "test-request-id"},
+        )
+
+        with self.assertRaises(ClientError):
+            self.backend.store_schema(1, self.encoded_schema)
+
+        mock_warning.assert_called_once_with(
+            "Schema bucket 'fake_schema_bucket' is full. "
+            "Contact USDF for more space.\n"
+            "Schema ID: 1\n"
+            "Path: v1/schemas/1.json\n"
+            "Error Code: 409\n"
+            "Message: Bucket Full\n"
+            "Status Code: 409\n"
+            "Request ID: test-request-id"
+        )
         self.stubber.deactivate()
 
 

@@ -106,7 +106,7 @@ class IngesterIntegrationTest(unittest.TestCase):
 
         # Each of the 5 alert should be uploaded.
         for message in messages:
-            blob_url = f"/v1/alerts/{message['alertId']}.avro"
+            blob_url = f"v1/alerts/{message['alertId']}.avro"
             s3_client = boto3.client("s3", endpoint_url=endpoint_url)
             response = s3_client.get_object(Bucket=self.alert_bucket_name, Key=blob_url)
             self.assertEqual(response["ResponseMetadata"]["HTTPStatusCode"], 200)
