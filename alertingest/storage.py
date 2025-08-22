@@ -5,10 +5,11 @@ Implementations of backend storage systems for the alert database server.
 import abc
 import gzip
 import logging
-from typing import Any, Set
+from typing import Any, Set, Union
 
 import boto3
 from botocore.config import Config
+from botocore.exceptions import ClientError
 
 
 class AlertDatabaseBackend(abc.ABC):
@@ -92,15 +93,17 @@ class USDFObjectStorageBackend(AlertDatabaseBackend):
         self.schema_bucket = schema_bucket_name
         self.known_schemas: Set[int] = set()
 
-    def create_client(self, endpoint_url: str | None = None):
+    def create_client(self, endpoint_url: Union[str, None] = None):
         s3_client = boto3.client(
             "s3",
             endpoint_url=endpoint_url,
+            region_name="us-east-1",
             config=Config(
                 request_checksum_calculation="when_required",
                 response_checksum_validation="when_required",
             ),
         )
+        test_aws_credentials(s3_client)
         return s3_client
 
     def store_alert(
@@ -109,41 +112,35 @@ class USDFObjectStorageBackend(AlertDatabaseBackend):
 
         if compression:
             alert_payload = gzip.compress(alert_payload)
-            alert_key = f"/v1/alerts/{alert_id}.avro.gz"
+            alert_key = f"v1/alerts/{alert_id}.avro.gz"
         else:
-            alert_key = f"/v1/alerts/{alert_id}.avro"
+            alert_key = f"v1/alerts/{alert_id}.avro"
         try:
             response = self.object_store_client.put_object(
                 Bucket=self.packet_bucket, Key=alert_key, Body=alert_payload
             )
             return response
         except self.object_store_client.exceptions.ClientError as e:
-            if e.response["Error"]["Code"] == "409":
-                logging.warning(
-                    "Alert archive bucket is full. Contact USDF for more space."
-                )
-            if e.response["Error"]["Code"] == "404":
-                logging.warning(
-                    "Cannot reach alert archive. Check alert archive servr status."
-                )
-            raise e
+            handle_s3_error(e, "alert", self.packet_bucket, alert_id, alert_key)
 
     def store_schema(self, schema_id: int, encoded_schema: bytes):
-        schema_key = f"/v1/schemas/{schema_id}.json"
-
+        schema_key = f"v1/schemas/{schema_id}.json"
+        boto3.set_stream_logger("")
         try:
-            self.object_store_client.put_object(
+            response = self.object_store_client.put_object(
                 Bucket=self.schema_bucket, Key=schema_key, Body=encoded_schema
             )
+            self.known_schemas.add(schema_id)
+            return response
         except self.object_store_client.exceptions.ClientError as e:
-            logging.warning("Schema could not be stored.")
-            raise e
+            handle_s3_error(e, "schema", self.schema_bucket, schema_id, schema_key)
+
         self.known_schemas.add(schema_id)
 
     def schema_exists(self, schema_id: int):
         if schema_id in self.known_schemas:
             return True
-        schema_key = f"/v1/schemas/{schema_id}.json"
+        schema_key = f"v1/schemas/{schema_id}.json"
         try:
             self.object_store_client.get_object(
                 Bucket=self.schema_bucket, Key=schema_key
@@ -153,3 +150,91 @@ class USDFObjectStorageBackend(AlertDatabaseBackend):
         except self.object_store_client.exceptions.ClientError:
             logging.warning("Schema not in schema bucket.")
             return False
+
+
+def test_aws_credentials(s3_client):
+    try:
+        # Try to list buckets - this operation requires valid credentials
+        response = s3_client.list_buckets()
+        logging.info("AWS credentials are valid. Successfully connected to S3.")
+        print(f"Available S3 bucket list: {response}")
+
+        return True
+    except Exception as e:
+        logging.warning(f"Error validating AWS credentials: {str(e)}")
+        error_code = e.response["Error"].get("Code")
+        error_msg = e.response["Error"].get("Message")
+        request_id = e.response.get("ResponseMetadata", {}).get("RequestId")
+        status_code = e.response.get("ResponseMetadata", {}).get("HTTPStatusCode")
+
+        logging.warning(
+            f"Error Code: {error_code}\n"
+            f"Message: {error_msg}\n"
+            f"Status Code: {status_code}\n"
+            f"Request ID: {request_id}"
+        )
+
+        return False
+
+
+def handle_s3_error(
+    e: ClientError, operation_type: str, bucket: str, item_id: int, item_key: str
+):
+    """
+    Handle S3 ClientError exceptions with consistent error logging.
+
+    Parameters
+    ----------
+    e : ClientError
+        The boto3 ClientError exception
+    operation_type : str
+        Type of item being operated on (e.g., 'alert', 'schema')
+    bucket : str
+        Name of the S3 bucket
+    item_id : int
+        ID of the item (alert_id or schema_id)
+    item_key : str
+        S3 key for the item
+
+    Raises
+    ------
+    ClientError
+        Re-raises the original exception after logging
+    """
+    error_code = e.response["Error"].get("Code")
+    error_msg = e.response["Error"].get("Message")
+    request_id = e.response.get("ResponseMetadata", {}).get("RequestId")
+    status_code = e.response.get("ResponseMetadata", {}).get("HTTPStatusCode")
+
+    if error_code == "409":
+        logging.warning(
+            f"{operation_type.capitalize()} bucket '{bucket}' is full. "
+            f"Contact USDF for more space.\n"
+            f"{operation_type.capitalize()} ID: {item_id}\n"
+            f"Path: {item_key}\n"
+            f"Error Code: {error_code}\n"
+            f"Message: {error_msg}\n"
+            f"Status Code: {status_code}\n"
+            f"Request ID: {request_id}"
+        )
+    elif error_code == "404":
+        logging.warning(
+            f"Cannot reach {operation_type} bucket at '{bucket}{item_key}'.\n"
+            f"Check {operation_type} bucket server status.\n"
+            f"{operation_type.capitalize()} ID: {item_id}\n"
+            f"Error Code: {error_code}\n"
+            f"Message: {error_msg}\n"
+            f"Status Code: {status_code}\n"
+            f"Request ID: {request_id}"
+        )
+    else:
+        logging.warning(
+            f"Failed to store {operation_type} in bucket '{bucket}'.\n"
+            f"{operation_type.capitalize()} ID: {item_id}\n"
+            f"Path: {item_key}\n"
+            f"Error Code: {error_code}\n"
+            f"Message: {error_msg}\n"
+            f"Status Code: {status_code}\n"
+            f"Request ID: {request_id}"
+        )
+    raise e
