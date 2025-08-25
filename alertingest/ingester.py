@@ -217,7 +217,7 @@ class IngestWorker:
         decoder = self.schema_registry.get_schema_decoder(schema_id)
 
         decoded = decoder(io.BytesIO(raw_msg[5:]))
-        return schema_id, decoded["alertId"]
+        return schema_id, decoded["diaSourceId"]
 
 
 def _read_confluent_wire_format_header(raw_msg: bytes) -> int:

@@ -42,7 +42,7 @@ class SchemaRegistryClient:
 
         # Now, construct a reader schema which only reads the alert ID.
         reader_schema = writer_schema.copy()
-        reader_schema["fields"] = [{"name": "alertId", "type": "long"}]
+        reader_schema["fields"] = [{"name": "diaSourceId", "type": "long"}]
 
         # Compile the decoder, so we correctly skip unused fields.
         logger.debug("compiling decoder")

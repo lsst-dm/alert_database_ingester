@@ -106,7 +106,7 @@ class IngesterIntegrationTest(unittest.TestCase):
 
         # Each of the 5 alert should be uploaded.
         for message in messages:
-            blob_url = f"v1/alerts/{message['alertId']}.avro"
+            blob_url = f"v1/alerts/{message['diaSourceId']}.avro"
             s3_client = boto3.client("s3", endpoint_url=endpoint_url)
             response = s3_client.get_object(Bucket=self.alert_bucket_name, Key=blob_url)
             self.assertEqual(response["ResponseMetadata"]["HTTPStatusCode"], 200)
@@ -125,7 +125,7 @@ class IngesterIntegrationTest(unittest.TestCase):
         await producer.start()
         try:
             for alert in alerts:
-                logger.info("writing alert with ID %s", alert["alertId"])
+                logger.info("writing alert with ID %s", alert["diaSourceId"])
                 await producer.send_and_wait(self.topic_name, self._encode_alert(alert))
         finally:
             await producer.stop()
@@ -150,7 +150,7 @@ class IngesterIntegrationTest(unittest.TestCase):
         is unfortunate, but it's relatively simple.
         """
         return {
-            "alertId": alert_id,
+            "diaSourceId": alert_id,
             "diaSource": {
                 "diaSourceId": randomLong(),
                 "ccdVisitId": randomLong(),
