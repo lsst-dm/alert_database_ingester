@@ -13,8 +13,8 @@ class TestSchemaRegistryClient(unittest.TestCase):
         self.schema_registry = SchemaRegistryClient(
             address="https://usdf-alert-schemas-dev.slac.stanford.edu"
         )
-        schema = self.schema_registry.get_raw_schema(300)
-        self.assertEqual(ast.literal_eval(schema)["namespace"], "lsst.v3_0")
+        schema = self.schema_registry.get_raw_schema(900)
+        self.assertEqual(ast.literal_eval(schema)["namespace"], "lsst.v9_0")
 
     def test_get_raw_schema_fail(self):
         """Test that the correct error is raised if the schema requested
@@ -30,8 +30,8 @@ class TestSchemaRegistryClient(unittest.TestCase):
         self.schema_registry = SchemaRegistryClient(
             address="https://usdf-alert-schemas-dev.slac.stanford.edu"
         )
-        self.schema_registry.get_schema_decoder(300)
-        self.assertIn(300, self.schema_registry._cached_decoders)
+        self.schema_registry.get_schema_decoder(900)
+        self.assertIn(900, self.schema_registry._cached_decoders)
 
 
 if __name__ == "__main__":

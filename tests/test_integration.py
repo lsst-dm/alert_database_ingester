@@ -324,7 +324,7 @@ class IngesterIntegrationTest(unittest.TestCase):
         Setup a alert schema.
         """
         cls.schema = _load_test_schema()
-        cls.schema_id = 300
+        cls.schema_id = 900
 
 
 def _load_test_schema():
