@@ -108,12 +108,13 @@ class USDFObjectStorageBackend(AlertDatabaseBackend):
     ):
         # Extract schema version from Confluent Wire Format
         # First byte is magic byte (0), next 4 bytes are schema ID
-        schema_version = int.from_bytes(alert_payload[1:5], byteorder='big')
-        
+        schema_version = int.from_bytes(alert_payload[1:5], byteorder="big")
+
         # Get current date in YYYY/MM/DD format
         from datetime import datetime
+
         current_date = datetime.now().strftime("%Y/%m/%d")
-        
+
         if compression:
             alert_payload = gzip.compress(alert_payload)
             alert_key = f"v{schema_version}/alerts/{current_date}/{alert_id}.avro.gz"
