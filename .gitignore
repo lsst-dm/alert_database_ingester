@@ -1,0 +1,32 @@
+# Virtual Environment
+venv/
+.venv/
+ENV/
+env/
+virtualenv/
+.Python
+*.pyc
+__pycache__/
+
+# PyCharm / IntelliJ IDEA
+.idea/
+*.iml
+*.iws
+*.ipr
+
+# PyDev / Eclipse
+.pydevproject
+.project
+.settings/
+
+# Build files
+build/
+dist/
+*.egg-info/
+*.egg
+*.so
+*.dylib
+*.dll
+*.pyd
+wheels/
+MANIFEST
