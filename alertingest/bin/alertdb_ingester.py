@@ -8,6 +8,10 @@ from alertingest.schema_registry import SchemaRegistryClient
 from alertingest.storage import USDFObjectStorageBackend
 
 
+def str_list(value):
+    return value.split(",")
+
+
 def main():
     parser = argparse.ArgumentParser(
         "alertdb-ingester",
@@ -38,11 +42,12 @@ def main():
         default="usdf-alert-stream-dev.lsst.cloud:9094",
         help="kafka host with alert data",
     )
+
     parser.add_argument(
-        "--kafka-topic",
-        type=str,
-        default="alerts-simulated",
-        help="name of the Kafka topic with alert data",
+        "--kafka-topics",
+        type=str_list,
+        default=["lsst-alerts-v7.4", "lsst-alerts-v9.0"],
+        help="names of the Kafka topics with alert data (comma-separated list in brackets)",
     )
     parser.add_argument(
         "--kafka-group",
@@ -111,7 +116,7 @@ def main():
     if args.kafka_auth_mechanism == "scram":
         kafka_params = KafkaConnectionParams.with_scram(
             host=args.kafka_host,
-            topic=args.kafka_topic,
+            topics=args.kafka_topics,
             group=args.kafka_group,
             username=args.kafka_username,
             password=os.environ["ALERTDB_KAFKA_PASSWORD"],
@@ -119,7 +124,7 @@ def main():
     elif args.kafka_auth_mechanism == "mtls":
         kafka_params = KafkaConnectionParams.with_mtls(
             host=args.kafka_host,
-            topic=args.kafka_topic,
+            topics=args.kafka_topics,
             group=args.kafka_group,
             client_key_path=args.tls_client_key_location,
             client_crt_path=args.tls_client_crt_location,

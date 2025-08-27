@@ -25,7 +25,7 @@ class KafkaConnectionParams:
     """
 
     host: str
-    topic: str
+    topics: list[str]
     group: str
 
     auth_mechanism: str
@@ -39,12 +39,12 @@ class KafkaConnectionParams:
 
     @classmethod
     def with_scram(
-        cls, host: str, topic: str, group: str, username: str, password: str
+        cls, host: str, topics: list[str], group: str, username: str, password: str
     ):
         """Instantiate a new param bundle using SCRAM auth."""
         return cls(
             host=host,
-            topic=topic,
+            topics=topics,
             group=group,
             auth_mechanism="scram",
             username=username,
@@ -58,7 +58,7 @@ class KafkaConnectionParams:
     def with_mtls(
         cls,
         host: str,
-        topic: str,
+        topics: list[str],
         group: str,
         client_key_path: str,
         client_crt_path: str,
@@ -67,7 +67,7 @@ class KafkaConnectionParams:
         """Instantiate a new param bundle using mTLS auth."""
         return cls(
             host=host,
-            topic=topic,
+            topics=topics,
             group=group,
             auth_mechanism="mtls",
             client_key_path=client_key_path,
@@ -165,7 +165,6 @@ class IngestWorker:
         ssl_ctx = ssl.SSLContext()
         ssl_ctx.load_default_certs()
         consumer = AIOKafkaConsumer(
-            self.kafka_params.topic,
             bootstrap_servers=self.kafka_params.host,
             group_id=self.kafka_params.group,
             sasl_plain_username=self.kafka_params.username,
@@ -176,11 +175,11 @@ class IngestWorker:
             enable_auto_commit=False,
             auto_offset_reset=auto_offset_reset,
         )
+        consumer.subscribe(topics=self.kafka_params.topics)
         return consumer
 
     def _create_mtls_consumer(self, auto_offset_reset):
         consumer = AIOKafkaConsumer(
-            self.kafka_params.topic,
             bootstrap_servers=self.kafka_params.host,
             group_id=self.kafka_params.group,
             security_protocol="SSL",
@@ -188,6 +187,7 @@ class IngestWorker:
             enable_auto_commit=False,
             auto_offset_reset=auto_offset_reset,
         )
+        consumer.subscribe(topics=self.kafka_params.topics)
         return consumer
 
     def handle_kafka_message(self, msg: ConsumerRecord):
