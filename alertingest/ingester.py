@@ -2,6 +2,7 @@
 A worker which copies alerts and schemas into an object store backend.
 """
 
+import asyncio
 import io
 import logging
 import ssl
@@ -136,20 +137,70 @@ class IngestWorker:
         try:
             since_last_commit = 0
             n = 0
+            last_message_time = asyncio.get_event_loop().time()
             logger.info("ingest worker run loop start")
-            async for msg in consumer:
-                logger.debug("ingest worker received a message")
-                self.handle_kafka_message(msg)
-                logger.debug("handle complete")
-                since_last_commit += 1
-                if since_last_commit == commit_interval:
-                    logger.info("committing position in stream")
-                    await consumer.commit()
-                    since_last_commit = 0
-                n += 1
-                if limit > 0 and n >= limit:
-                    logger.info("limit reached - returning")
-                    return
+            while True:
+                try:
+                    msg = await asyncio.wait_for(consumer.__anext__(), timeout=30)
+
+                    self.handle_kafka_message(msg)
+                    logger.debug("handle complete")
+                    last_message_time = asyncio.get_event_loop().time()
+                    since_last_commit += 1
+                    new_messages = True
+
+                    if since_last_commit == commit_interval:
+                        logger.info("committing position in stream")
+                        await consumer.commit()
+                        since_last_commit = 0
+
+                    n += 1
+                    if limit > 0 and n >= limit:
+                        logger.info("limit reached - returning")
+                        if since_last_commit > 0:
+                            await consumer.commit()
+                        return
+
+                except asyncio.TimeoutError:
+                    logger.info("waiting timed out, checking for new messages...")
+                    current_time = asyncio.get_event_loop().time()
+                    # Only check partitions if we've processed messages
+                    # since last check
+                    if current_time - last_message_time > 3600 and new_messages:
+                        if since_last_commit > 0:
+                            logger.info(
+                                "no new messages for 1 hour, checking for "
+                                "any remaining messages in log"
+                            )
+                            await consumer.commit()
+                            since_last_commit = 0
+
+                        caught_up = True
+                        # Check if we're caught up on all partitions
+                        for partition in consumer.assignment():
+                            try:
+                                logger.info("Checking offset positions.")
+                                position = await consumer.position(partition)
+                                end_offset = (await consumer.end_offsets([partition]))[partition]  # fmt: skip
+                                logger.info(position)
+                                logger.info(end_offset)
+                                logger.info(partition)
+                                if position < end_offset:
+                                    caught_up = False
+                                    break
+                            except Exception as e:
+                                logger.warning(
+                                    f"Error checking partition {partition}: {e}"
+                                )
+                                caught_up = False
+                                break
+
+                        if caught_up:
+                            new_messages = False
+                            logger.info(
+                                "Caught up with all partitions, no more messages to process."
+                            )
+                            continue
         finally:
             await consumer.stop()
 
