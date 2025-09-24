@@ -108,12 +108,8 @@ class IngestWorker:
         self.backend = backend
         self.schema_registry = registry
 
-    async def run(
-        self,
-        limit: int = -1,
-        commit_interval: int = 100,
-        auto_offset_reset: str = "latest",
-    ):
+    async def run(self, limit: int = -1, commit_interval: int = 100,
+                  auto_offset_reset: str = "earliest"):
         """
         Run the consumer, copying messages from Kafka to the IngestWorker's
         backend.
@@ -134,75 +130,141 @@ class IngestWorker:
         """
         consumer = self._create_consumer(auto_offset_reset)
         await consumer.start()
+
         try:
-            since_last_commit = 0
-            n = 0
-            last_message_time = asyncio.get_event_loop().time()
+            # Combine all state information together to make things clearer
+            state_tracker = {
+                'since_last_commit': 0, # Counter used to keep track of when we reach the submit interbal
+                'limit_n': 0, # Counts messages if we are limiting number to send. Unused at the moment
+                'last_message_time': asyncio.get_event_loop().time(),
+                'new_messages': True # Check if we are reading new messages
+            }
+
             logger.info("ingest worker run loop start")
             while True:
                 try:
                     msg = await asyncio.wait_for(consumer.__anext__(), timeout=30)
 
-                    self.handle_kafka_message(msg)
-                    logger.debug("handle complete")
-                    last_message_time = asyncio.get_event_loop().time()
-                    since_last_commit += 1
-                    new_messages = True
+                    # Process messages and update the state tracker
+                    state_tracker.update(await self.process_message(msg, consumer, **state_tracker,
+                                                       worker=self))
 
-                    if since_last_commit == commit_interval:
-                        logger.info("committing position in stream")
-                        await consumer.commit()
-                        since_last_commit = 0
+                    # Check if the commit_interbal has been reached
+                    if state_tracker['since_last_commit'] == commit_interval:
+                        state_tracker['since_last_commit'] = await self.handle_commit(
+                            consumer, state_tracker['since_last_commit'])
 
-                    n += 1
-                    if limit > 0 and n >= limit:
+                    # Check message limit
+                    if limit > 0 and state_tracker['n'] >= limit:
                         logger.info("limit reached - returning")
-                        if since_last_commit > 0:
-                            await consumer.commit()
+                        await self.handle_commit(consumer,
+                                            state_tracker['since_last_commit'])
                         return
 
                 except asyncio.TimeoutError:
-                    logger.info("waiting timed out, checking for new messages...")
+                    logger.info(
+                        "waiting timed out, checking for new messages...")
                     current_time = asyncio.get_event_loop().time()
-                    # Only check partitions if we've processed messages
-                    # since last check
-                    if current_time - last_message_time > 3600 and new_messages:
-                        if since_last_commit > 0:
-                            logger.info(
-                                "no new messages for 1 hour, checking for "
-                                "any remaining messages in log"
-                            )
-                            await consumer.commit()
-                            since_last_commit = 0
+                    state_tracker['new_messages'], state_tracker[
+                        'since_last_commit'] = await self.process_timeout(
+                        consumer,
+                        current_time,
+                        state_tracker['last_message_time'],
+                        state_tracker['since_last_commit'],
+                        state_tracker['new_messages']
+                    )
 
-                        caught_up = True
-                        # Check if we're caught up on all partitions
-                        for partition in consumer.assignment():
-                            try:
-                                logger.info("Checking offset positions.")
-                                position = await consumer.position(partition)
-                                end_offset = (await consumer.end_offsets([partition]))[partition]  # fmt: skip
-                                logger.info(position)
-                                logger.info(end_offset)
-                                logger.info(partition)
-                                if position < end_offset:
-                                    caught_up = False
-                                    break
-                            except Exception as e:
-                                logger.warning(
-                                    f"Error checking partition {partition}: {e}"
-                                )
-                                caught_up = False
-                                break
-
-                        if caught_up:
-                            new_messages = False
-                            logger.info(
-                                "Caught up with all partitions, no more messages to process."
-                            )
-                            continue
         finally:
             await consumer.stop()
+
+    async def process_message(msg, consumer, last_message_time,
+                              since_last_commit, limit_n, worker):
+        """
+        Process a single Kafka message.
+
+        The function reads a single kafka message and updates the state
+        tracker.
+
+        Parameters
+        ----------
+        since_last_commit:
+            The number of messages since the last commit.
+
+        limit_n : int
+            Counts the number of messages which have been processed
+            since the last commit. Will commit once the required number
+            of messages has been reached
+
+        worker : IngestWorker
+            The ingester worker which is handling the message.
+        """
+        worker.handle_kafka_message(msg)
+        logger.debug("handle complete")
+        return {
+            'last_message_time': asyncio.get_event_loop().time(),
+            'since_last_commit': since_last_commit + 1,
+            'limit_n': limit_n + 1,
+            'new_messages': True
+        }
+
+    async def handle_commit(self, consumer, since_last_commit):
+        """Handle committing of consumer offsets.
+
+            Once the consumer has comitted the new messages, since_last_commit
+            is reset to 0 and we start counting again.
+
+            Parameters
+            ----------
+            consumer : AIOKafkaConsumer
+                The active kafka consumer reading the alert stream
+
+            since_last_commit : int
+                The number of messages since the last commit.
+            """
+        if since_last_commit > 0:
+            logger.info("committing position in stream")
+            await consumer.commit()
+            return 0
+        return since_last_commit
+
+    async def check_caught_up(self, consumer, partition):
+        """Check if a partition is caught up with its end offset.
+
+        If the partition is caught up, the function returns True and we will not
+        keep on checking."""
+        try:
+            logger.info("Checking offset positions.")
+            position = await consumer.position(partition)
+            end_offset = (await consumer.end_offsets([partition]))[partition]
+            logger.info(
+                f"Position: {position}, End offset: {end_offset}, Partition: {partition}")
+            return position >= end_offset
+        except Exception as e:
+            logger.warning(f"Error checking partition {partition}: {e}")
+            return False
+
+    async def process_timeout(self, consumer, current_time, last_message_time, since_last_commit, new_messages):
+        """Handle timeout scenario and check for remaining messages.
+
+        If the timeout has been reached, the function checks if the new message
+        flag is set to true. If new messages if false and the time between the
+        commits is less than the difference interval, the function will return and we will
+        bit check the partitions. If the time between the commits is greater than
+        the difference interval, or new messages new messages us set to f """
+        if current_time - last_message_time <= 3600 or not new_messages:
+            return new_messages, since_last_commit
+
+        since_last_commit = await self.handle_commit(consumer, since_last_commit)
+
+        # Check all partitions
+        for partition in consumer.assignment():
+            if not await self.check_caught_up(consumer, partition):
+                return new_messages, since_last_commit
+
+        logger.info(
+            "Caught up with all partitions, no more messages to process.")
+        return False, since_last_commit
+
 
     def _create_consumer(self, auto_offset_reset: str = "latest"):
         if self.kafka_params.auth_mechanism == "scram":
