@@ -109,7 +109,7 @@ class IngestWorker:
         self.schema_registry = registry
 
     async def run(self, limit: int = -1, commit_interval: int = 100,
-                  auto_offset_reset: str = "earliest"):
+                  auto_offset_reset: str = "latest"):
         """
         Run the consumer, copying messages from Kafka to the IngestWorker's
         backend.
@@ -134,10 +134,10 @@ class IngestWorker:
         try:
             # Combine all state information together to make things clearer
             state_tracker = {
-                'since_last_commit': 0, # Counter used to keep track of when we reach the submit interbal
-                'limit_n': 0, # Counts messages if we are limiting number to send. Unused at the moment
+                'since_last_commit': 0,  # Counter used to keep track of when we reach the submit interbal
+                'limit_n': 0,  # Counts messages if we are limiting number to send. Unused at the moment
                 'last_message_time': asyncio.get_event_loop().time(),
-                'new_messages': True # Check if we are reading new messages
+                'new_messages': True  # Check if we are reading new messages
             }
 
             logger.info("ingest worker run loop start")
@@ -147,7 +147,7 @@ class IngestWorker:
 
                     # Process messages and update the state tracker
                     state_tracker.update(await self.process_message(msg, consumer, **state_tracker,
-                                                       worker=self))
+                                                                    worker=self))
 
                     # Check if the commit_interbal has been reached
                     if state_tracker['since_last_commit'] == commit_interval:
@@ -157,8 +157,7 @@ class IngestWorker:
                     # Check message limit
                     if limit > 0 and state_tracker['n'] >= limit:
                         logger.info("limit reached - returning")
-                        await self.handle_commit(consumer,
-                                            state_tracker['since_last_commit'])
+                        await self.handle_commit(consumer, state_tracker['since_last_commit'])
                         return
 
                 except asyncio.TimeoutError:
@@ -230,8 +229,8 @@ class IngestWorker:
     async def check_caught_up(self, consumer, partition):
         """Check if a partition is caught up with its end offset.
 
-        If the partition is caught up, the function returns True and we will not
-        keep on checking."""
+        If the partition is caught up, the function returns True and we will
+        not keep on checking."""
         try:
             logger.info("Checking offset positions.")
             position = await consumer.position(partition)
@@ -243,14 +242,17 @@ class IngestWorker:
             logger.warning(f"Error checking partition {partition}: {e}")
             return False
 
-    async def process_timeout(self, consumer, current_time, last_message_time, since_last_commit, new_messages):
+    async def process_timeout(self, consumer, current_time, last_message_time, since_last_commit,
+                              new_messages):
         """Handle timeout scenario and check for remaining messages.
 
         If the timeout has been reached, the function checks if the new message
         flag is set to true. If new messages if false and the time between the
-        commits is less than the difference interval, the function will return and we will
-        bit check the partitions. If the time between the commits is greater than
-        the difference interval, or new messages new messages us set to f """
+        commits is less than the difference interval, the function will return
+        and we will bit check the partitions. If the time between the commits
+        is greater than the difference interval"""
+        # Do I still need new_messages???? Questioning it now. I've kinda
+        # lost the plot of why I was using it.
         if current_time - last_message_time <= 3600 or not new_messages:
             return new_messages, since_last_commit
 
@@ -264,7 +266,6 @@ class IngestWorker:
         logger.info(
             "Caught up with all partitions, no more messages to process.")
         return False, since_last_commit
-
 
     def _create_consumer(self, auto_offset_reset: str = "latest"):
         if self.kafka_params.auth_mechanism == "scram":
