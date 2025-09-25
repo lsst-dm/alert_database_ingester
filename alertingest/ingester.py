@@ -292,14 +292,12 @@ class IngestWorker:
         )
 
         # Check all partitions for remaining messages.
+        all_caught_up = True
         for partition in consumer.assignment():
             if not await self.check_caught_up(consumer, partition):
-                return new_messages, commit_interval_counter
-
-        logger.info("Caught up with all partitions, no more messages to process.")
-        # If all remaining messages have been read, return False and return the
-        # last commit interval.
-        return False, commit_interval_counter
+                all_caught_up = False
+                break
+        return (not all_caught_up), commit_interval_counter
 
     async def check_caught_up(self, consumer, partition):
         """Check if a partition is caught up with its end offset.
