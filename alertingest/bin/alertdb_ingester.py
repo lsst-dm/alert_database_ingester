@@ -107,13 +107,13 @@ def main():
         "--message-timeout",
         type=int,
         default=1800,
-        help="Timeout in seconds for waiting for new messages (default: 1800)"
+        help="Timeout in seconds for waiting for new messages (default: 1800)",
     )
     parser.add_argument(
         "--log-check-timeout",
         type=int,
         default=3600,
-        help="Timeout in seconds for waiting for new messages (default: 3600)"
+        help="Timeout in seconds for waiting for new messages (default: 3600)",
     )
 
     args = parser.parse_args()
@@ -152,7 +152,11 @@ def main():
     )
     registry = SchemaRegistryClient(args.schema_registry_address)
 
-    worker = IngestWorker(kafka_params, backend, registry,
-                          message_timeout=args.message_timeout,
-                          log_check_timeout=args.log_check_timeout)
+    worker = IngestWorker(
+        kafka_params,
+        backend,
+        registry,
+        message_timeout=args.message_timeout,
+        log_check_timeout=args.log_check_timeout,
+    )
     asyncio.get_event_loop().run_until_complete(worker.run())
