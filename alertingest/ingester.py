@@ -147,6 +147,7 @@ class IngestWorker:
             logger.info("ingest worker run loop start")
             while True:
                 try:
+                    logger.info("waiting for message")
                     msg = await asyncio.wait_for(consumer.__anext__(), timeout=300)
 
                     # Process messages and update the state tracker. Will set
