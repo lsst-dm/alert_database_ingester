@@ -147,7 +147,7 @@ class IngestWorker:
             logger.info("ingest worker run loop start")
             while True:
                 try:
-                    msg = await asyncio.wait_for(consumer.__anext__(), timeout=30)
+                    msg = await asyncio.wait_for(consumer.__anext__(), timeout=300)
 
                     # Process messages and update the state tracker. Will set
                     # new_messages to True if new messages have been read.
@@ -291,12 +291,15 @@ class IngestWorker:
             consumer, commit_interval_counter
         )
 
-        # Check all partitions for remaining messages.
         all_caught_up = True
         for partition in consumer.assignment():
             if not await self.check_caught_up(consumer, partition):
                 all_caught_up = False
                 break
+
+        if all_caught_up:
+            logger.info("All partitions are caught up, waiting for new messages...")
+
         return (not all_caught_up), commit_interval_counter
 
     async def check_caught_up(self, consumer, partition):
