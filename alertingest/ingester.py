@@ -99,7 +99,6 @@ class IngestWorker:
         registry: SchemaRegistryClient,
         message_timeout: int = 1800,
         log_check_timeout: int = 3600,
-
     ):
         """
         Copies Rubin alert data from a Kafka broker to a database backend,
@@ -153,7 +152,9 @@ class IngestWorker:
             while True:
                 try:
                     logger.info("waiting for message")
-                    msg = await asyncio.wait_for(consumer.__anext__(), timeout=self.message_timeout)
+                    msg = await asyncio.wait_for(
+                        consumer.__anext__(), timeout=self.message_timeout
+                    )
 
                     # Process messages and update the state tracker. Will set
                     # new_messages to True if new messages have been read.
