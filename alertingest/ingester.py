@@ -284,7 +284,7 @@ class IngestWorker:
         # If the interval hasn't been reached OR if there have been no new
         # messages, return immediately and don't try to read from the
         # partitions.
-        if current_time - last_message_time <= 3600 and new_messages:
+        if current_time - last_message_time <= 300 and new_messages:
             return new_messages, commit_interval_counter
 
         commit_interval_counter = await self.handle_commit(
