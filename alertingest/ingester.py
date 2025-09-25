@@ -138,7 +138,7 @@ class IngestWorker:
         try:
             # Combine all state information together to make things clearer
             state_tracker = {
-                "commit_interval_counter": 0,  # Counter used to keep track of when we reach the submit interbal
+                "commit_interval_counter": 0,  # Counter used to keep track of the submit interval
                 "limit_n": 0,  # Counts messages if we are limiting number to send. Unused at the moment
                 "last_message_time": asyncio.get_event_loop().time(),
                 "new_messages": True,  # Check if we are reading new messages
@@ -160,8 +160,10 @@ class IngestWorker:
                     # Check if the commit_interbal has been reached and submit
                     # messages if it has
                     if state_tracker["commit_interval_counter"] == commit_interval:
-                        state_tracker["commit_interval_counter"] = await self.handle_commit(
-                            consumer, state_tracker["commit_interval_counter"]
+                        state_tracker["commit_interval_counter"] = (
+                            await self.handle_commit(
+                                consumer, state_tracker["commit_interval_counter"]
+                            )
                         )
 
                     # Check message limit
@@ -197,8 +199,8 @@ class IngestWorker:
         finally:
             await consumer.stop()
 
-    async def process_message(self,
-        msg, consumer, last_message_time, since_last_commit, limit_n, worker
+    async def process_message(
+        self, msg, consumer, last_message_time, since_last_commit, limit_n, worker
     ):
         """
         Process a single Kafka message.
@@ -231,8 +233,8 @@ class IngestWorker:
     async def handle_commit(self, consumer, since_last_commit):
         """Handle committing of consumer offsets.
 
-        Once the consumer has comitted the new messages, commit_interval_counter
-        is reset to 0 and we start counting again.
+        Once the consumer has comitted the new messages,
+        commit_interval_counter is reset to 0 and we start counting again.
 
         Parameters
         ----------
@@ -249,7 +251,12 @@ class IngestWorker:
         return since_last_commit
 
     async def process_timeout(
-        self, consumer, current_time, last_message_time, commit_interval_counter, new_messages
+        self,
+        consumer,
+        current_time,
+        last_message_time,
+        commit_interval_counter,
+        new_messages,
     ):
         """Handle timeout scenario and check for remaining messages.
 
@@ -280,7 +287,9 @@ class IngestWorker:
         if current_time - last_message_time <= 3600 or not new_messages:
             return new_messages, commit_interval_counter
 
-        commit_interval_counter = await self.handle_commit(consumer, commit_interval_counter)
+        commit_interval_counter = await self.handle_commit(
+            consumer, commit_interval_counter
+        )
 
         # Check all partitions for remaining messages.
         for partition in consumer.assignment():
@@ -295,18 +304,18 @@ class IngestWorker:
     async def check_caught_up(self, consumer, partition):
         """Check if a partition is caught up with its end offset.
 
-            We then return True if the end offset is equal or greater than the
-            end offset (maybe possible if end_offset isn't updating correctly)
-            and False if the position is less than the end offset.
+        We then return True if the end offset is equal or greater than the
+        end offset (maybe possible if end_offset isn't updating correctly)
+        and False if the position is less than the end offset.
 
-             Parameters
-             ----------
+         Parameters
+         ----------
 
-             consumer : AIOKafkaConsumer
-                The active kafka consumer reading the alert stream
+         consumer : AIOKafkaConsumer
+            The active kafka consumer reading the alert stream
 
-            partition : int
-                The partition to check.
+        partition : int
+            The partition to check.
         """
         try:
             logger.info("Checking offset positions.")
