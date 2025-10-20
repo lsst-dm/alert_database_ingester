@@ -12,6 +12,14 @@ def str_list(value):
     return value.split(",")
 
 
+def setup_logging(level):
+    logging.basicConfig(
+        level=level,
+        format="%(asctime)s.%(msecs)03d %(levelname)s %(name)s: %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S",
+    )
+
+
 def main():
     parser = argparse.ArgumentParser(
         "alertdb-ingester",
@@ -103,15 +111,27 @@ def main():
     )
     parser.add_argument("--verbose", action="store_true", help="log a bunch")
     parser.add_argument("--debug", action="store_true", help="log even more")
+    parser.add_argument(
+        "--message-timeout",
+        type=int,
+        default=1800,
+        help="Timeout in seconds for waiting for new messages (default: 1800)",
+    )
+    parser.add_argument(
+        "--log-check-timeout",
+        type=int,
+        default=3600,
+        help="Timeout in seconds for waiting for new messages (default: 3600)",
+    )
 
     args = parser.parse_args()
 
     if args.debug:
-        logging.basicConfig(level=logging.DEBUG)
+        setup_logging(logging.DEBUG)
     elif args.verbose:
-        logging.basicConfig(level=logging.INFO)
+        setup_logging(logging.INFO)
     else:
-        logging.basicConfig(level=logging.WARNING)
+        setup_logging(logging.WARNING)
 
     if args.kafka_auth_mechanism == "scram":
         kafka_params = KafkaConnectionParams.with_scram(
@@ -140,5 +160,11 @@ def main():
     )
     registry = SchemaRegistryClient(args.schema_registry_address)
 
-    worker = IngestWorker(kafka_params, backend, registry)
+    worker = IngestWorker(
+        kafka_params,
+        backend,
+        registry,
+        message_timeout=args.message_timeout,
+        log_check_timeout=args.log_check_timeout,
+    )
     asyncio.get_event_loop().run_until_complete(worker.run())
