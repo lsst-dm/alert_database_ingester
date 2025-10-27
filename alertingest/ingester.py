@@ -211,7 +211,7 @@ class IngestWorker:
         msg,
         consumer,
         last_message_time,
-        since_last_commit,
+        commit_interval_counter,
         limit_n,
         worker,
         new_messages,
@@ -225,7 +225,7 @@ class IngestWorker:
 
         Parameters
         ----------
-        since_last_commit: int
+        commit_interval_counter: int
             The number of messages since the last commit.
 
         limit_n : int
