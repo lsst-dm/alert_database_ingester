@@ -254,12 +254,12 @@ class IngestWorker:
 
         return {
             "last_message_time": asyncio.get_event_loop().time(),
-            "commit_interval_counter": since_last_commit + 1,
+            "commit_interval_counter": commit_interval_counter + 1,
             "limit_n": limit_n,
             "new_messages": will_return,
         }
 
-    async def handle_commit(self, consumer, since_last_commit):
+    async def handle_commit(self, consumer, commit_interval_counter):
         """Handle committing of consumer offsets.
 
         Once the consumer has committed the new messages,
@@ -270,14 +270,14 @@ class IngestWorker:
         consumer : AIOKafkaConsumer
             The active kafka consumer reading the alert stream
 
-        since_last_commit : int
+        commit_interval_counter : int
             The number of messages since the last commit.
         """
-        if since_last_commit > 0:
+        if commit_interval_counter > 0:
             logger.info("committing position in stream")
             await consumer.commit()
             return 0
-        return since_last_commit
+        return commit_interval_counter
 
     async def process_timeout(
         self,
