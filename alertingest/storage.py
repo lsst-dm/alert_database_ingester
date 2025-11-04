@@ -115,6 +115,9 @@ class USDFObjectStorageBackend(AlertDatabaseBackend):
             alert_key = f"v1/alerts/{alert_id}.avro.gz"
         else:
             alert_key = f"v1/alerts/{alert_id}.avro"
+        
+        logging.info(f"Storing alert to bucket: {self.packet_bucket}, path: {alert_key}")
+        
         try:
             response = self.object_store_client.put_object(
                 Bucket=self.packet_bucket, Key=alert_key, Body=alert_payload
