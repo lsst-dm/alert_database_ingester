@@ -250,10 +250,10 @@ class IngestWorker:
             f"process_message called: topic={msg.topic}, partition={msg.partition}, "
             f"offset={msg.offset}, commit_counter={commit_interval_counter}"
         )
-        
+
         worker.handle_kafka_message(msg)
         logger.info("handle_kafka_message completed successfully")
-        
+
         if limit > 0:
             limit_n += 1
         will_return = True if msg else new_messages
@@ -288,7 +288,7 @@ class IngestWorker:
                     f"committing partition {partition.partition} "
                     f"topic {partition.topic} at position {position}"
                 )
-            
+
             await consumer.commit()
             logger.info("commit complete")
             return 0
@@ -420,18 +420,20 @@ class IngestWorker:
         schema in the backend if it is not already present. Stores the alert
         packet in the backend always.
         """
-        logger.info(f"Processing Kafka message from topic={msg.topic}, partition={msg.partition}, offset={msg.offset}")
+        logger.info(
+            f"Processing Kafka message from topic={msg.topic}, partition={msg.partition}, offset={msg.offset}"
+        )
         raw_msg = msg.value
         schema_id, alert_id = self._parse_alert_msg(raw_msg)
         logger.info(f"Parsed message: schema_id={schema_id}, alert_id={alert_id}")
-        
+
         if not self.backend.schema_exists(schema_id):
             logger.info("%s is a new schema ID - storing it", schema_id)
             encoded_schema = self.schema_registry.get_raw_schema(schema_id)
             self.backend.store_schema(schema_id, encoded_schema)
         else:
             logger.debug(f"Schema {schema_id} already exists, skipping storage")
-        
+
         logger.info(f"Storing alert {alert_id} to backend")
         self.backend.store_alert(alert_id, raw_msg)
         logger.info(f"Alert {alert_id} stored successfully")
