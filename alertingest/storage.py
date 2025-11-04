@@ -107,7 +107,7 @@ class USDFObjectStorageBackend(AlertDatabaseBackend):
         return s3_client
 
     def store_alert(
-        self, alert_id: int, alert_payload: bytes, compression: bool = False
+        self, alert_id: int, alert_payload: bytes, compression: bool = True
     ):
 
         if compression:
