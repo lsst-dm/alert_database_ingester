@@ -246,24 +246,24 @@ class IngestWorker:
             than 1, we do not track the number of messages processed.
 
         """
-        logger.info(
-            f"process_message called: topic={msg.topic}, partition={msg.partition}, "
-            f"offset={msg.offset}, commit_counter={commit_interval_counter}"
-        )
-
+    try:
         worker.handle_kafka_message(msg)
-        logger.info("handle_kafka_message completed successfully")
+    except Exception as e:
+        logger.error("error processing message at offset %s: %s", msg.offset, e)
+        logger.exception("full traceback")
+        raise
+    
+    logger.debug("handle complete")
+    if limit > 0:
+        limit_n += 1
+    will_return = True if msg else new_messages
 
-        if limit > 0:
-            limit_n += 1
-        will_return = True if msg else new_messages
-
-        return {
-            "last_message_time": asyncio.get_event_loop().time(),
-            "commit_interval_counter": commit_interval_counter + 1,
-            "limit_n": limit_n,
-            "new_messages": will_return,
-        }
+    return {
+        "last_message_time": asyncio.get_event_loop().time(),
+        "commit_interval_counter": commit_interval_counter + 1,
+        "limit_n": limit_n,
+        "new_messages": will_return,
+    }
 
     async def handle_commit(self, consumer, commit_interval_counter):
         """Handle committing of consumer offsets.
