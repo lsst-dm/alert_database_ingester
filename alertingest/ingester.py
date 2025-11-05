@@ -246,7 +246,13 @@ class IngestWorker:
             than 1, we do not track the number of messages processed.
 
         """
-        worker.handle_kafka_message(msg)
+        try:
+            worker.handle_kafka_message(msg)
+        except Exception as e:
+            logger.error("error processing message at offset %s: %s", msg.offset, e)
+            logger.exception("full traceback")
+            raise
+
         logger.debug("handle complete")
         if limit > 0:
             limit_n += 1
@@ -274,8 +280,17 @@ class IngestWorker:
             The number of messages since the last commit.
         """
         if commit_interval_counter > 0:
-            logger.info("committing position in stream")
+            # Log what we're about to commit
+            logger.info(f"committing {commit_interval_counter} messages")
+            for partition in consumer.assignment():
+                position = await consumer.position(partition)
+                logger.info(
+                    f"committing partition {partition.partition} "
+                    f"topic {partition.topic} at position {position}"
+                )
+
             await consumer.commit()
+            logger.info("commit complete")
             return 0
         return commit_interval_counter
 
@@ -405,16 +420,23 @@ class IngestWorker:
         schema in the backend if it is not already present. Stores the alert
         packet in the backend always.
         """
-        logger.debug("handle start")
+        logger.info(
+            f"Processing Kafka message from topic={msg.topic}, partition={msg.partition}, offset={msg.offset}"
+        )
         raw_msg = msg.value
         schema_id, alert_id = self._parse_alert_msg(raw_msg)
-        logger.debug("handling msg schema_id=%s alert_id=%s", schema_id, alert_id)
+        logger.info(f"Parsed message: schema_id={schema_id}, alert_id={alert_id}")
+
         if not self.backend.schema_exists(schema_id):
             logger.info("%s is a new schema ID - storing it", schema_id)
             encoded_schema = self.schema_registry.get_raw_schema(schema_id)
             self.backend.store_schema(schema_id, encoded_schema)
-        logger.debug("storing alert")
+        else:
+            logger.debug(f"Schema {schema_id} already exists, skipping storage")
+
+        logger.info(f"Storing alert {alert_id} to backend")
         self.backend.store_alert(alert_id, raw_msg)
+        logger.info(f"Alert {alert_id} stored successfully")
 
     def _parse_alert_msg(self, raw_msg: bytes) -> Tuple[int, int]:
         # return schema_id, alert_id from alert payload

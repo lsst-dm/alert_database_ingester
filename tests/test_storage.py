@@ -151,7 +151,7 @@ class TestUSDFObjectStorageBackend(unittest.TestCase):
             "Alert bucket 'fake_alert_bucket' is full. "
             "Contact USDF for more space.\n"
             "Alert ID: 1\n"
-            "Path: v1/alerts/1.avro\n"
+            "Path: v1/alerts/1.avro.gz\n"
             "Error Code: 409\n"
             "Message: Bucket Full\n"
             "Status Code: 409\n"
@@ -177,7 +177,7 @@ class TestUSDFObjectStorageBackend(unittest.TestCase):
 
         mock_warning.assert_called_once_with(
             "Cannot reach alert bucket at 'fake_alert_bucket"
-            "v1/alerts/1.avro'.\n"
+            "v1/alerts/1.avro.gz'.\n"
             "Check alert bucket server status.\n"
             "Alert ID: 1\n"
             "Error Code: 404\n"
@@ -206,7 +206,7 @@ class TestUSDFObjectStorageBackend(unittest.TestCase):
         mock_warning.assert_called_once_with(
             "Failed to store alert in bucket 'fake_alert_bucket'.\n"
             "Alert ID: 1\n"
-            "Path: v1/alerts/1.avro\n"
+            "Path: v1/alerts/1.avro.gz\n"
             "Error Code: 500\n"
             "Message: Internal Server Error\n"
             "Status Code: 500\n"
