@@ -13,15 +13,13 @@ from botocore.exceptions import ClientError
 
 
 class AlertDatabaseBackend(abc.ABC):
-    """
-    An abstract interface representing a storage backend for alerts and
+    """An abstract interface representing a storage backend for alerts and
     schemas.
     """
 
     @abc.abstractmethod
     def store_alert(self, alert_id: int, alert_payload: bytes):
-        """
-        Store a single alert's payload, in compressed Confluent Wire Format.
+        """Store a single alert's payload, in compressed Confluent Wire Format.
 
         Confluent Wire Format is described here:
           https://docs.confluent.io/platform/current/schema-registry/serdes-develop/index.html#wire-format
@@ -38,8 +36,8 @@ class AlertDatabaseBackend(abc.ABC):
 
     @abc.abstractmethod
     def store_schema(self, schema_id: int, encoded_schema: bytes):
-        """
-        Store a single alert schema JSON document in its JSON-serialized form.
+        """Store a single alert schema JSON document in its JSON-serialized
+        form.
 
         Parameters
         ----------
@@ -68,8 +66,7 @@ class AlertDatabaseBackend(abc.ABC):
 
 
 class USDFObjectStorageBackend(AlertDatabaseBackend):
-    """
-    Stores alerts and schemas in a Google Cloud Storage bucket.
+    """Stores alerts and schemas in a Google Cloud Storage bucket.
 
     The path for alert and schema objects follows the scheme in DMTN-183.
 
@@ -117,7 +114,7 @@ class USDFObjectStorageBackend(AlertDatabaseBackend):
             alert_key = f"v1/alerts/{alert_id}.avro"
 
         logging.info(
-            f"Storing alert to bucket: {self.packet_bucket}, path: {alert_key}"
+            "Storing alert to bucket: %s, path: %s", self.packet_bucket, alert_key
         )
 
         try:
@@ -158,25 +155,42 @@ class USDFObjectStorageBackend(AlertDatabaseBackend):
 
 
 def test_aws_credentials(s3_client):
+    """Test AWS credentials by listing buckets.
+
+    Parameters
+    ----------
+    s3_client : boto3.client
+        s3 client object we are trying to send alerts to.
+
+    Raises
+    ------
+    Exception
+        Raises an expection if the aws credentials are invalid or if
+        the client cannot connect to s3.
+    """
     try:
         # Try to list buckets - this operation requires valid credentials
         response = s3_client.list_buckets()
-        logging.info("AWS credentials are valid. Successfully connected to S3.")
-        print(f"Available S3 bucket list: {response}")
+        status_code = response.get("ResponseMetadata", {}).get("HTTPStatusCode")
+        logging.info(
+            "AWS credentials are valid. Successfully connected to S3. Status Code: %s",
+            status_code,
+        )
 
         return True
     except Exception as e:
-        logging.warning(f"Error validating AWS credentials: {str(e)}")
+        logging.warning("Error validating AWS credentials: %s", str(e))
         error_code = e.response["Error"].get("Code")
         error_msg = e.response["Error"].get("Message")
         request_id = e.response.get("ResponseMetadata", {}).get("RequestId")
         status_code = e.response.get("ResponseMetadata", {}).get("HTTPStatusCode")
 
         logging.warning(
-            f"Error Code: {error_code}\n"
-            f"Message: {error_msg}\n"
-            f"Status Code: {status_code}\n"
-            f"Request ID: {request_id}"
+            "Error Code: %s\n" "Message: %s\n" "Status Code: %s\n" "Request ID: %s",
+            error_code,
+            error_msg,
+            status_code,
+            request_id,
         )
 
         return False
@@ -185,8 +199,7 @@ def test_aws_credentials(s3_client):
 def handle_s3_error(
     e: ClientError, operation_type: str, bucket: str, item_id: int, item_key: str
 ):
-    """
-    Handle S3 ClientError exceptions with consistent error logging.
+    """Handle S3 ClientError exceptions with consistent error logging.
 
     Parameters
     ----------
@@ -213,33 +226,61 @@ def handle_s3_error(
 
     if error_code == "409":
         logging.warning(
-            f"{operation_type.capitalize()} bucket '{bucket}' is full. "
-            f"Contact USDF for more space.\n"
-            f"{operation_type.capitalize()} ID: {item_id}\n"
-            f"Path: {item_key}\n"
-            f"Error Code: {error_code}\n"
-            f"Message: {error_msg}\n"
-            f"Status Code: {status_code}\n"
-            f"Request ID: {request_id}"
+            "%s bucket '%s' is full. "
+            "Contact USDF for more space.\n"
+            "%s ID: %s\n"
+            "Path: %s\n"
+            "Error Code: %s\n"
+            "Message: %s\n"
+            "Status Code: %s\n"
+            "Request ID: %s",
+            operation_type.capitalize(),
+            bucket,
+            operation_type.capitalize(),
+            item_id,
+            item_key,
+            error_code,
+            error_msg,
+            status_code,
+            request_id,
         )
     elif error_code == "404":
         logging.warning(
-            f"Cannot reach {operation_type} bucket at '{bucket}{item_key}'.\n"
-            f"Check {operation_type} bucket server status.\n"
-            f"{operation_type.capitalize()} ID: {item_id}\n"
-            f"Error Code: {error_code}\n"
-            f"Message: {error_msg}\n"
-            f"Status Code: {status_code}\n"
-            f"Request ID: {request_id}"
+            "Cannot reach %s bucket at '%s/%s'.\n"
+            "Check %s bucket server status.\n"
+            "%s ID: %s\n"
+            "Error Code: %s\n"
+            "Message: %s\n"
+            "Status Code: %s\n"
+            "Request ID: %s",
+            operation_type,
+            bucket,
+            item_key,
+            operation_type,
+            operation_type.capitalize(),
+            item_id,
+            error_code,
+            error_msg,
+            status_code,
+            request_id,
         )
     else:
         logging.warning(
-            f"Failed to store {operation_type} in bucket '{bucket}'.\n"
-            f"{operation_type.capitalize()} ID: {item_id}\n"
-            f"Path: {item_key}\n"
-            f"Error Code: {error_code}\n"
-            f"Message: {error_msg}\n"
-            f"Status Code: {status_code}\n"
-            f"Request ID: {request_id}"
+            "Failed to store %s in bucket '%s'.\n"
+            "%s ID: %s\n"
+            "Path: %s\n"
+            "Error Code: %s\n"
+            "Message: %s\n"
+            "Status Code: %s\n"
+            "Request ID: %s",
+            operation_type,
+            bucket,
+            operation_type.capitalize(),
+            item_id,
+            item_key,
+            error_code,
+            error_msg,
+            status_code,
+            request_id,
         )
     raise e
