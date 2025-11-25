@@ -21,9 +21,7 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class KafkaConnectionParams:
-    """
-    A bundle of data required to connect to Kafka.
-    """
+    """A bundle of data required to connect to Kafka."""
 
     host: str
     topics: list[str]
@@ -79,8 +77,7 @@ class KafkaConnectionParams:
         )
 
     def _create_ssl_context(self) -> ssl.SSLContext:
-        """
-        Bundles the KafkaConnectionParams' SSL-related attributes into an
+        """Bundles the KafkaConnectionParams' SSL-related attributes into an
         SSL context.
         """
         assert self.auth_mechanism == "mtls"
@@ -100,8 +97,7 @@ class IngestWorker:
         message_timeout: int = 1800,
         log_check_timeout: int = 3600,
     ):
-        """
-        Copies Rubin alert data from a Kafka broker to a database backend,
+        """Copies Rubin alert data from a Kafka broker to a database backend,
         using a schema registry to make sense of the alert data.
 
         All alert data is expected to be encoded in Confluent Wire Format.
@@ -118,8 +114,7 @@ class IngestWorker:
         commit_interval: int = 100,
         auto_offset_reset: str = "latest",
     ):
-        """
-        Run the consumer, copying messages from Kafka to the IngestWorker's
+        """Run the consumer, copying messages from Kafka to the IngestWorker's
         backend.
 
         Parameters
@@ -148,10 +143,10 @@ class IngestWorker:
                 "new_messages": True,  # Check if we are reading new messages
             }
 
-            logger.info("ingest worker run loop start")
+            logger.info("Ingest worker run loop start.")
             while True:
                 try:
-                    logger.info("waiting for message")
+                    logger.info("Waiting for message.")
                     msg = await asyncio.wait_for(
                         consumer.__anext__(), timeout=self.message_timeout
                     )
@@ -182,7 +177,7 @@ class IngestWorker:
                         return
 
                 except asyncio.TimeoutError:
-                    logger.info("waiting timed out, checking for new messages...")
+                    logger.info("Waiting timed out, checking for new messages...")
                     # Check if we are reading new messages. If new messages
                     # is set to false, don't try and read the partitions.
                     # If new messages is set to true, we will try and read
@@ -200,7 +195,7 @@ class IngestWorker:
                     )
 
         except Exception as e:
-            logger.error(f"Error during message processing: {e}")
+            logger.error("Error during message processing: %s", e)
             raise
 
         finally:
@@ -217,8 +212,7 @@ class IngestWorker:
         new_messages,
         limit=-1,
     ):
-        """
-        Process a single Kafka message.
+        """Process a single Kafka message.
 
         The function reads a single kafka message and updates the state
         tracker.
@@ -246,7 +240,13 @@ class IngestWorker:
             than 1, we do not track the number of messages processed.
 
         """
-        worker.handle_kafka_message(msg)
+        try:
+            worker.handle_kafka_message(msg)
+        except Exception as e:
+            logger.error("Error processing message at offset %s: %s", msg.offset, e)
+            logger.exception("full traceback")
+            raise
+
         logger.debug("handle complete")
         if limit > 0:
             limit_n += 1
@@ -274,8 +274,19 @@ class IngestWorker:
             The number of messages since the last commit.
         """
         if commit_interval_counter > 0:
-            logger.info("committing position in stream")
+            # Log what we're about to commit
+            logger.info("Committing %s messages", commit_interval_counter)
+            for partition in consumer.assignment():
+                position = await consumer.position(partition)
+                logger.info(
+                    "Committing partition %s, topic %s at position %s",
+                    partition.partition,
+                    partition.topic,
+                    position,
+                )
+
             await consumer.commit()
+            logger.info("Commit complete.")
             return 0
         return commit_interval_counter
 
@@ -353,11 +364,14 @@ class IngestWorker:
             position = await consumer.position(partition)
             end_offset = (await consumer.end_offsets([partition]))[partition]
             logger.info(
-                f"Position: {position}, End offset: {end_offset}, Partition: {partition}"
+                "Position: %s, End offset: %s, Partition: %s",
+                position,
+                end_offset,
+                partition,
             )
             return position >= end_offset
         except Exception as e:
-            logger.warning(f"Error checking partition {partition}: {e}")
+            logger.warning("Error checking partition %s: %s", partition, e)
             return False
 
     def _create_consumer(self, auto_offset_reset: str = "latest"):
@@ -398,29 +412,44 @@ class IngestWorker:
         return consumer
 
     def handle_kafka_message(self, msg: ConsumerRecord):
-        """
-        Handle a single Kafka message.
+        """Handle a single Kafka message.
 
         Parses out the schema ID and alert ID from the message. Stores the
         schema in the backend if it is not already present. Stores the alert
         packet in the backend always.
+
+        Parameters
+        ----------
+        msg : ConsumerRecord
+            Kafka message to process and send to the alert archive.
         """
-        logger.debug("handle start")
+        # Logging important during debugging
+        logger.debug(
+            "Processing Kafka message from topic=%s, partition=%s, offset=%s",
+            msg.topic,
+            msg.partition,
+            msg.offset,
+        )
         raw_msg = msg.value
         schema_id, alert_id = self._parse_alert_msg(raw_msg)
-        logger.debug("handling msg schema_id=%s alert_id=%s", schema_id, alert_id)
+        logger.debug("Parsed message: schema_id=%s, alert_id=%s", schema_id, alert_id)
+
         if not self.backend.schema_exists(schema_id):
             logger.info("%s is a new schema ID - storing it", schema_id)
             encoded_schema = self.schema_registry.get_raw_schema(schema_id)
             self.backend.store_schema(schema_id, encoded_schema)
-        logger.debug("storing alert")
+        else:
+            logger.debug("Schema %s already exists, skipping storage", schema_id)
+
+        logger.debug("Storing alert %s to backend.", alert_id)
         self.backend.store_alert(alert_id, raw_msg)
+        logger.debug("Alert %s stored successfully.", alert_id)
 
     def _parse_alert_msg(self, raw_msg: bytes) -> Tuple[int, int]:
         # return schema_id, alert_id from alert payload
         schema_id = _read_confluent_wire_format_header(raw_msg)
 
-        logger.debug("read schema ID %s, getting decoder", schema_id)
+        logger.debug("Read schema ID %s, getting decoder.", schema_id)
         decoder = self.schema_registry.get_schema_decoder(schema_id)
 
         decoded = decoder(io.BytesIO(raw_msg[5:]))
@@ -429,8 +458,8 @@ class IngestWorker:
 
 def _read_confluent_wire_format_header(raw_msg: bytes) -> int:
     if len(raw_msg) < 5:
-        raise ValueError("malformed message: too short")
+        raise ValueError("Malformed message: too short.")
     if raw_msg[0] != 0:
-        raise ValueError("malformed message: incorrect magic byte")
+        raise ValueError("Malformed message: incorrect magic byte.")
     schema_id = struct.unpack(">I", raw_msg[1:5])[0]
     return schema_id

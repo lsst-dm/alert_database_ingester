@@ -148,14 +148,22 @@ class TestUSDFObjectStorageBackend(unittest.TestCase):
             self.backend.store_alert(1, self.alert_payload)
 
         mock_warning.assert_called_once_with(
-            "Alert bucket 'fake_alert_bucket' is full. "
-            "Contact USDF for more space.\n"
-            "Alert ID: 1\n"
-            "Path: v1/alerts/1.avro\n"
-            "Error Code: 409\n"
-            "Message: Bucket Full\n"
-            "Status Code: 409\n"
-            "Request ID: test-request-id"
+            "%s bucket '%s' is full. Contact USDF for more space.\n"
+            "%s ID: %s\n"
+            "Path: %s\n"
+            "Error Code: %s\n"
+            "Message: %s\n"
+            "Status Code: %s\n"
+            "Request ID: %s",
+            "Alert",
+            "fake_alert_bucket",
+            "Alert",
+            1,
+            "v1/alerts/1.avro.gz",
+            "409",
+            "Bucket Full",
+            409,
+            "test-request-id",
         )
         self.stubber.deactivate()
 
@@ -176,14 +184,23 @@ class TestUSDFObjectStorageBackend(unittest.TestCase):
             self.backend.store_alert(1, self.alert_payload)
 
         mock_warning.assert_called_once_with(
-            "Cannot reach alert bucket at 'fake_alert_bucket"
-            "v1/alerts/1.avro'.\n"
-            "Check alert bucket server status.\n"
-            "Alert ID: 1\n"
-            "Error Code: 404\n"
-            "Message: Not Found\n"
-            "Status Code: 404\n"
-            "Request ID: test-request-id"
+            "Cannot reach %s bucket at '%s/%s'.\n"
+            "Check %s bucket server status.\n"
+            "%s ID: %s\n"
+            "Error Code: %s\n"
+            "Message: %s\n"
+            "Status Code: %s\n"
+            "Request ID: %s",
+            "alert",
+            "fake_alert_bucket",
+            "v1/alerts/1.avro.gz",
+            "alert",
+            "Alert",
+            1,
+            "404",
+            "Not Found",
+            404,
+            "test-request-id",
         )
         self.stubber.deactivate()
 
@@ -204,13 +221,22 @@ class TestUSDFObjectStorageBackend(unittest.TestCase):
             self.backend.store_alert(1, self.alert_payload)
 
         mock_warning.assert_called_once_with(
-            "Failed to store alert in bucket 'fake_alert_bucket'.\n"
-            "Alert ID: 1\n"
-            "Path: v1/alerts/1.avro\n"
-            "Error Code: 500\n"
-            "Message: Internal Server Error\n"
-            "Status Code: 500\n"
-            "Request ID: test-request-id"
+            "Failed to store %s in bucket '%s'.\n"
+            "%s ID: %s\n"
+            "Path: %s\n"
+            "Error Code: %s\n"
+            "Message: %s\n"
+            "Status Code: %s\n"
+            "Request ID: %s",
+            "alert",
+            "fake_alert_bucket",
+            "Alert",
+            1,
+            "v1/alerts/1.avro.gz",
+            "500",
+            "Internal Server Error",
+            500,
+            "test-request-id",
         )
         self.stubber.deactivate()
 
@@ -230,14 +256,22 @@ class TestUSDFObjectStorageBackend(unittest.TestCase):
             self.backend.store_schema(1, self.encoded_schema)
 
         mock_warning.assert_called_once_with(
-            "Schema bucket 'fake_schema_bucket' is full. "
-            "Contact USDF for more space.\n"
-            "Schema ID: 1\n"
-            "Path: v1/schemas/1.json\n"
-            "Error Code: 409\n"
-            "Message: Bucket Full\n"
-            "Status Code: 409\n"
-            "Request ID: test-request-id"
+            "%s bucket '%s' is full. Contact USDF for more space.\n"
+            "%s ID: %s\n"
+            "Path: %s\n"
+            "Error Code: %s\n"
+            "Message: %s\n"
+            "Status Code: %s\n"
+            "Request ID: %s",
+            "Schema",
+            "fake_schema_bucket",
+            "Schema",
+            1,
+            "v1/schemas/1.json",
+            "409",
+            "Bucket Full",
+            409,
+            "test-request-id",
         )
         self.stubber.deactivate()
 

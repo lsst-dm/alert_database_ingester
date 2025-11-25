@@ -19,25 +19,25 @@ class SchemaRegistryClient:
     def get_raw_schema(self, schema_id: int) -> bytes:
         url = f"{self.address}/schemas/ids/{schema_id}"
         try:
-            logger.debug("making request to %s", url)
+            logger.debug("Making request to %s", url)
             response = requests.get(url, timeout=5)
             response.raise_for_status()
             parsed_body = json.loads(response.content)
             return parsed_body["schema"]
         except requests.exceptions.HTTPError:
-            raise KeyError(f"Schema ID {schema_id} not found")
+            raise KeyError("Schema ID %s not found: ", schema_id)
 
     def get_schema_decoder(self, schema_id: int) -> Decoder:
         # If we've already constructed a decoder, use it.
         if schema_id in self._cached_decoders:
-            logger.debug("using cached decoder")
+            logger.debug("Using cached decoder.")
             return self._cached_decoders[schema_id]
 
-        logger.info("constructing new decoder")
+        logger.info("Constructing new decoder.")
         # We need to make a new one. Start by downloading the schema JSON from
         # the registry.
         schema_bytes = self.get_raw_schema(schema_id)
-        logger.debug("parsing JSON bytes")
+        logger.debug("Parsing JSON bytes.")
         writer_schema = json.loads(schema_bytes)
 
         # Now, construct a reader schema which only reads the alert ID.
@@ -45,9 +45,9 @@ class SchemaRegistryClient:
         reader_schema["fields"] = [{"name": "diaSourceId", "type": "long"}]
 
         # Compile the decoder, so we correctly skip unused fields.
-        logger.debug("compiling decoder")
+        logger.debug("Compiling decoder.")
         decoder: Decoder = avroc.compile_decoder(writer_schema, reader_schema)
 
         self._cached_decoders[schema_id] = decoder
-        logger.debug("decoder construction done")
+        logger.debug("Decoder construction done.")
         return decoder
