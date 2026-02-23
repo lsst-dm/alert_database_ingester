@@ -106,20 +106,14 @@ class USDFObjectStorageBackend(AlertDatabaseBackend):
     def store_alert(
         self, alert_id: int, alert_payload: bytes, compression: bool = True
     ):
-        # Extract schema version from Confluent Wire Format
-        # First byte is magic byte (0), next 4 bytes are schema ID
-        schema_version = int.from_bytes(alert_payload[1:5], byteorder="big")
-
-        # Get current date in YYYY/MM/DD format
-        from datetime import datetime
-
-        current_date = datetime.now().strftime("%Y/%m/%d")
+        alert_id_str = str(alert_id)
+        alert_prefix = alert_id_str[:5]
 
         if compression:
             alert_payload = gzip.compress(alert_payload)
-            alert_key = f"v{schema_version}/alerts/{current_date}/{alert_id}.avro.gz"
+            alert_key = f"v1/alerts/{alert_prefix}/{alert_id_str}.avro.gz"
         else:
-            alert_key = f"v1/alerts/{alert_id}.avro"
+            alert_key = f"v1/alerts/{alert_prefix}/{alert_id_str}.avro"
 
         logging.info(
             "Storing alert to bucket: %s, path: %s", self.packet_bucket, alert_key

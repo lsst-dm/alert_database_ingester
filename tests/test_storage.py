@@ -64,7 +64,7 @@ class TestUSDFObjectStorageBackend(unittest.TestCase):
 
         expected_params = {
             "Bucket": "fake_alert_bucket",
-            "Key": "v1/alerts/1.avro",
+            "Key": "v1/alerts/1/1.avro",
             "Body": self.alert_payload,
         }
         self.stubber.activate()
@@ -159,7 +159,7 @@ class TestUSDFObjectStorageBackend(unittest.TestCase):
             "fake_alert_bucket",
             "Alert",
             1,
-            "v1/alerts/1.avro.gz",
+            "v1/alerts/1/1.avro.gz",
             "409",
             "Bucket Full",
             409,
@@ -193,7 +193,7 @@ class TestUSDFObjectStorageBackend(unittest.TestCase):
             "Request ID: %s",
             "alert",
             "fake_alert_bucket",
-            "v1/alerts/1.avro.gz",
+            "v1/alerts/1/1.avro.gz",
             "alert",
             "Alert",
             1,
@@ -232,7 +232,7 @@ class TestUSDFObjectStorageBackend(unittest.TestCase):
             "fake_alert_bucket",
             "Alert",
             1,
-            "v1/alerts/1.avro.gz",
+            "v1/alerts/1/1.avro.gz",
             "500",
             "Internal Server Error",
             500,
