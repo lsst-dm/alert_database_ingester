@@ -10,6 +10,8 @@ from botocore.stub import Stubber
 
 from alertingest.storage import USDFObjectStorageBackend
 
+TEST_KEY_PREFIX = "v2"
+
 
 class TestUSDFObjectStorageBackend(unittest.TestCase):
     def setUp(self):
@@ -64,7 +66,7 @@ class TestUSDFObjectStorageBackend(unittest.TestCase):
 
         expected_params = {
             "Bucket": "fake_alert_bucket",
-            "Key": "v1/alerts/1/1.avro",
+            "Key": "v2/alerts/1/1.avro",
             "Body": self.alert_payload,
         }
         self.stubber.activate()
@@ -91,7 +93,7 @@ class TestUSDFObjectStorageBackend(unittest.TestCase):
 
         expected_params = {
             "Bucket": "fake_schema_bucket",
-            "Key": "v1/schemas/1.json",
+            "Key": "v2/schemas/1.json",
             "Body": self.encoded_schema,
         }
 
@@ -111,7 +113,7 @@ class TestUSDFObjectStorageBackend(unittest.TestCase):
 
         expected_params = {
             "Bucket": "fake_schema_bucket",
-            "Key": "v1/schemas/3.json",
+            "Key": "v2/schemas/3.json",
         }
         # Test schema wasn't stored in known schemas but was retrieved
         # and added
@@ -159,7 +161,7 @@ class TestUSDFObjectStorageBackend(unittest.TestCase):
             "fake_alert_bucket",
             "Alert",
             1,
-            "v1/alerts/1/1.avro.gz",
+            "v2/alerts/1/1.avro.gz",
             "409",
             "Bucket Full",
             409,
@@ -193,7 +195,7 @@ class TestUSDFObjectStorageBackend(unittest.TestCase):
             "Request ID: %s",
             "alert",
             "fake_alert_bucket",
-            "v1/alerts/1/1.avro.gz",
+            "v2/alerts/1/1.avro.gz",
             "alert",
             "Alert",
             1,
@@ -232,7 +234,7 @@ class TestUSDFObjectStorageBackend(unittest.TestCase):
             "fake_alert_bucket",
             "Alert",
             1,
-            "v1/alerts/1/1.avro.gz",
+            "v2/alerts/1/1.avro.gz",
             "500",
             "Internal Server Error",
             500,
@@ -267,7 +269,7 @@ class TestUSDFObjectStorageBackend(unittest.TestCase):
             "fake_schema_bucket",
             "Schema",
             1,
-            "v1/schemas/1.json",
+            "v2/schemas/1.json",
             "409",
             "Bucket Full",
             409,

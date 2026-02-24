@@ -30,6 +30,8 @@ _required_env_vars = {
     "endpoint_url": "AWS_ENDPOINT_URL",
 }
 
+TEST_KEY_PREFIX = "v2"
+
 
 def _load_required_env_var(name):
     key = _required_env_vars[name]
@@ -101,7 +103,7 @@ class IngesterIntegrationTest(unittest.TestCase):
         for message in messages:
             alert_id_str = str(message["diaSourceId"])
             alert_prefix = alert_id_str[:5]
-            blob_url = f"v1/alerts/{alert_prefix}/{alert_id_str}.avro.gz"
+            blob_url = f"{TEST_KEY_PREFIX}/alerts/{alert_prefix}/{alert_id_str}.avro.gz"
             s3_client = boto3.client("s3", endpoint_url=endpoint_url)
             response = s3_client.get_object(Bucket=self.alert_bucket_name, Key=blob_url)
             self.assertEqual(response["ResponseMetadata"]["HTTPStatusCode"], 200)

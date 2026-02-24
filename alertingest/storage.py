@@ -11,6 +11,8 @@ import boto3
 from botocore.config import Config
 from botocore.exceptions import ClientError
 
+VERSION = "v2"
+
 
 class AlertDatabaseBackend(abc.ABC):
     """An abstract interface representing a storage backend for alerts and
@@ -111,9 +113,9 @@ class USDFObjectStorageBackend(AlertDatabaseBackend):
 
         if compression:
             alert_payload = gzip.compress(alert_payload)
-            alert_key = f"v1/alerts/{alert_prefix}/{alert_id_str}.avro.gz"
+            alert_key = f"{VERSION}/alerts/{alert_prefix}/{alert_id_str}.avro.gz"
         else:
-            alert_key = f"v1/alerts/{alert_prefix}/{alert_id_str}.avro"
+            alert_key = f"{VERSION}/alerts/{alert_prefix}/{alert_id_str}.avro"
 
         logging.info(
             "Storing alert to bucket: %s, path: %s", self.packet_bucket, alert_key
@@ -128,7 +130,7 @@ class USDFObjectStorageBackend(AlertDatabaseBackend):
             handle_s3_error(e, "alert", self.packet_bucket, alert_id, alert_key)
 
     def store_schema(self, schema_id: int, encoded_schema: bytes):
-        schema_key = f"v1/schemas/{schema_id}.json"
+        schema_key = f"{VERSION}/schemas/{schema_id}.json"
         boto3.set_stream_logger("")
         try:
             response = self.object_store_client.put_object(
@@ -144,7 +146,7 @@ class USDFObjectStorageBackend(AlertDatabaseBackend):
     def schema_exists(self, schema_id: int):
         if schema_id in self.known_schemas:
             return True
-        schema_key = f"v1/schemas/{schema_id}.json"
+        schema_key = f"{VERSION}/schemas/{schema_id}.json"
         try:
             self.object_store_client.get_object(
                 Bucket=self.schema_bucket, Key=schema_key
