@@ -109,7 +109,7 @@ class USDFObjectStorageBackend(AlertDatabaseBackend):
         self, alert_id: int, alert_payload: bytes, compression: bool = True
     ):
         alert_id_str = str(alert_id)
-        alert_prefix = alert_id_str[:5]
+        alert_prefix = alert_id_str[:6]
 
         if compression:
             alert_payload = gzip.compress(alert_payload)

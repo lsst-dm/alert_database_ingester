@@ -102,7 +102,7 @@ class IngesterIntegrationTest(unittest.TestCase):
         # Each of the 5 alert should be uploaded.
         for message in messages:
             alert_id_str = str(message["diaSourceId"])
-            alert_prefix = alert_id_str[:5]
+            alert_prefix = alert_id_str[:6]
             blob_url = f"{TEST_KEY_PREFIX}/alerts/{alert_prefix}/{alert_id_str}.avro.gz"
             s3_client = boto3.client("s3", endpoint_url=endpoint_url)
             response = s3_client.get_object(Bucket=self.alert_bucket_name, Key=blob_url)
