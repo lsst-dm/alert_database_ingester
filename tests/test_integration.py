@@ -14,13 +14,7 @@ import lsst.alert.packet
 from aiokafka import AIOKafkaProducer
 from botocore.exceptions import ClientError
 from kafka.admin import KafkaAdminClient, NewTopic
-from lsst.alert.packet.simulate import (
-    randomDouble,
-    randomFloat,
-    randomInt,
-    randomLong,
-    randomString,
-)
+from lsst.alert.packet.simulate import randomFloat, randomInt, randomString
 
 from alertingest.ingester import IngestWorker, KafkaConnectionParams
 from alertingest.schema_registry import SchemaRegistryClient
@@ -35,6 +29,8 @@ _required_env_vars = {
     "registry_url": "ALERT_INGEST_TEST_REGISTRY_URL",
     "endpoint_url": "AWS_ENDPOINT_URL",
 }
+
+TEST_KEY_PREFIX = "v2"
 
 
 def _load_required_env_var(name):
@@ -68,13 +64,12 @@ class IngesterIntegrationTest(unittest.TestCase):
         Run the ingester against a real Kafka topic, Google Cloud Storage
         bucket, and Schema Registry.
         """
-        # This will be swapped to a MOCK since we shouldnt be testing again
-        # a real setup
+
         kafka_group = "alert_ingest_integration_test_group"
         endpoint_url = _load_required_env_var("endpoint_url")
         kafka_params = KafkaConnectionParams.with_scram(
             self.kafka_hostport,
-            self.topic_name,
+            [self.topic_name],
             kafka_group,
             self.kafka_username,
             self.kafka_password,
@@ -106,7 +101,9 @@ class IngesterIntegrationTest(unittest.TestCase):
 
         # Each of the 5 alert should be uploaded.
         for message in messages:
-            blob_url = f"v1/alerts/{message['diaSourceId']}.avro"
+            alert_id_str = str(message["diaSourceId"])
+            alert_prefix = alert_id_str[:6]
+            blob_url = f"{TEST_KEY_PREFIX}/alerts/{alert_prefix}/{alert_id_str}.avro.gz"
             s3_client = boto3.client("s3", endpoint_url=endpoint_url)
             response = s3_client.get_object(Bucket=self.alert_bucket_name, Key=blob_url)
             self.assertEqual(response["ResponseMetadata"]["HTTPStatusCode"], 200)
@@ -149,26 +146,36 @@ class IngesterIntegrationTest(unittest.TestCase):
         This is tightly coupled to version 4.0 of the alert packet schema. This
         is unfortunate, but it's relatively simple.
         """
+        alert_base_id = 123344556
         return {
-            "diaSourceId": alert_id,
+            "diaSourceId": alert_base_id + alert_id,
             "diaSource": {
-                "diaSourceId": randomLong(),
-                "ccdVisitId": randomLong(),
-                "diaObjectId": randomLong(),
-                "ssObjectId": randomLong(),
-                "midPointTai": randomDouble(),
-                "filterName": randomString(),
+                "diaSourceId": randomInt(),
+                "timeProcessedMjdTai": randomFloat(),
+                "visit": randomInt(),
+                "detector": randomInt(),
+                "midpointMjdTai": randomFloat(),
+                "band": randomString(),
                 "programId": randomInt(),
-                "ra": randomDouble(),
-                "decl": randomDouble(),
+                "ra": randomFloat(),
+                "dec": randomFloat(),
+                "raErr": randomFloat(),
+                "decErr": randomFloat(),
+                "ra_dec_Cov": randomFloat(),
                 "x": randomFloat(),
                 "y": randomFloat(),
+                "xErr": randomFloat(),
+                "yErr": randomFloat(),
+                "x_y_Cov": randomFloat(),
                 "apFlux": randomFloat(),
                 "apFluxErr": randomFloat(),
                 "snr": randomFloat(),
-                "psFlux": randomFloat(),
-                "psFluxErr": randomFloat(),
-                "flags": 0,
+                "trailNdata": randomInt(),
+                "psfFlux": randomFloat(),
+                "psfFluxErr": randomFloat(),
+                "psfNdata": randomInt(),
+                "dipoleNdata": randomInt(),
+                "bboxSize": randomInt(),
             },
         }
 
@@ -202,7 +209,8 @@ class IngesterIntegrationTest(unittest.TestCase):
 
         def delete_bucket():
             logger.info("deleting bucket %s", bucket_name)
-            bucket.objects.all().delete()
+            for obj in bucket.objects.all():
+                s3.delete_object(Bucket=bucket_name, Key=obj.key)
             bucket.delete()
 
         cls.addClassCleanup(delete_bucket)
@@ -225,7 +233,8 @@ class IngesterIntegrationTest(unittest.TestCase):
 
         def delete_bucket():
             logger.info("deleting bucket %s", bucket_name)
-            bucket.objects.all().delete()
+            for obj in bucket.objects.all():
+                s3.delete_object(Bucket=bucket_name, Key=obj.key)
             bucket.delete()
 
         cls.addClassCleanup(delete_bucket)
@@ -324,7 +333,7 @@ class IngesterIntegrationTest(unittest.TestCase):
         Setup a alert schema.
         """
         cls.schema = _load_test_schema()
-        cls.schema_id = 900
+        cls.schema_id = 1000
 
 
 def _load_test_schema():

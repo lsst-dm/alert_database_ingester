@@ -110,14 +110,15 @@ pre-commit run --all-files
 
 Run tests with `pytest`. You can just do `pytest .` in the repo root.
 
-Integration tests require some credentials. If you don't have them set, the
+Integration tests require some credentials as well as an active local server in a running Docker
+container. See server documentation first. If you don't have credentials set, the
 integration tests will be skipped. You need these - you must fill in the actual
-usernames and passwords, of course:
+usernames and passwords:
 
 ```
-export ALERT_INGEST_TEST_KAFKA_URL=kafka://username:password@alertbroker-scratch.lsst.codes
-export ALERT_INGEST_TEST_REGISTRY_URL=https://username:password@alertschemas-scratch.lsst.codes
-export ALERT_INGEST_TEST_GCP_PROJECT=alert-stream
+export ALERT_INGEST_TEST_KAFKA_URL=kafka://$KAFKA_USERNAME:$KAFKA_PASSWORD@usdf-alert-stream-dev.lsst.cloud:9094
+export ALERT_INGEST_TEST_REGISTRY_URL=https://$KAFKA_USERNAME:$KAFKA_PASSWORD@usdf-alert-schemas-dev.slac.stanford.edu
+export ALERT_INGEST_TEST_GCP_PROJECT=['alert-stream-test']
 ```
 
 Then, `pytest .` will run the integration tests, which create temporary Kafka
