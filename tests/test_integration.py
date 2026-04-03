@@ -64,7 +64,6 @@ class IngesterIntegrationTest(unittest.TestCase):
         Run the ingester against a real Kafka topic, Google Cloud Storage
         bucket, and Schema Registry.
         """
-
         kafka_group = "alert_ingest_integration_test_group"
         endpoint_url = _load_required_env_var("endpoint_url")
         kafka_params = KafkaConnectionParams.with_scram(
