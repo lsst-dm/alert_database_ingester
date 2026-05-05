@@ -7,8 +7,8 @@ import pytest
 
 from alertingest.ingester import (
     IngestWorker,
+    _last_noon,
     _read_confluent_wire_format_header,
-    _seconds_since_last_noon,
 )
 
 
@@ -23,75 +23,77 @@ def _make_worker():
     )
 
 
-def test_seconds_since_last_noon_after_noon():
-    """When the current time is after noon, result is time since noon today."""
-    # 2 hours and 30 minutes after noon
+def test_last_noon_after_noon():
+    """When current time is after noon, returns today's noon."""
     fake_now = datetime.datetime(2026, 1, 15, 14, 30, 0)
     with patch("alertingest.ingester.datetime") as mock_dt:
         mock_dt.datetime.now.return_value = fake_now
         mock_dt.timedelta = datetime.timedelta
-        result = _seconds_since_last_noon()
-    assert result == pytest.approx(2.5 * 3600, abs=1)
+        result = _last_noon()
+    assert result == datetime.datetime(2026, 1, 15, 12, 0, 0)
 
 
-def test_seconds_since_last_noon_before_noon():
-    """When the current time is before noon, result is time since noon
-    yesterday."""
-    # 21 hours after the last noon
+def test_last_noon_before_noon():
+    """When current time is before noon, returns yesterday's noon."""
     fake_now = datetime.datetime(2026, 1, 15, 9, 0, 0)
     with patch("alertingest.ingester.datetime") as mock_dt:
         mock_dt.datetime.now.return_value = fake_now
         mock_dt.timedelta = datetime.timedelta
-        result = _seconds_since_last_noon()
-    assert result == pytest.approx(21 * 3600, abs=1)
+        result = _last_noon()
+    assert result == datetime.datetime(2026, 1, 14, 12, 0, 0)
 
 
-def test_seconds_since_last_noon_exactly_at_noon():
-    """When the current time is exactly noon, result should be 0."""
+def test_last_noon_exactly_at_noon():
+    """When current time is exactly noon, returns today's noon."""
     fake_now = datetime.datetime(2026, 1, 15, 12, 0, 0)
     with patch("alertingest.ingester.datetime") as mock_dt:
         mock_dt.datetime.now.return_value = fake_now
         mock_dt.timedelta = datetime.timedelta
-        result = _seconds_since_last_noon()
-    assert result == pytest.approx(0, abs=1)
+        result = _last_noon()
+    assert result == datetime.datetime(2026, 1, 15, 12, 0, 0)
 
 
-def test_seconds_since_last_noon_range():
-    """Result is always within [0, 86400)."""
-    result = _seconds_since_last_noon()
-    assert 0 <= result < 86400
+def test_last_noon_range():
+    """Result is always within the past 24 hours."""
+    result = _last_noon()
+    now = datetime.datetime.now()
+    assert result <= now
+    assert now - result < datetime.timedelta(days=1)
 
 
 def test_check_daily_reset_no_rollover(caplog):
-    """No log or reset when less than 86400 seconds have passed."""
+    """No log or reset when less than 24 hours have passed."""
     worker = _make_worker()
-    state = {"daily_stored": 42, "day_start_time": 1000.0}
+    start = datetime.datetime(2026, 1, 15, 12, 0, 0)
+    state = {"daily_stored": 42, "day_start_time": start}
     with caplog.at_level(logging.INFO, logger="alertingest.ingester"):
-        worker._check_daily_reset(1000.0 + 86399, state)
+        worker._check_daily_reset(start + datetime.timedelta(seconds=86399), state)
     assert state["daily_stored"] == 42
     assert "24 hours" not in caplog.text
 
 
 def test_check_daily_reset_single_rollover(caplog):
-    """Counter is logged and reset after exactly 86400 seconds."""
+    """Counter is logged and reset after exactly 24 hours."""
     worker = _make_worker()
-    state = {"daily_stored": 100, "day_start_time": 0.0}
+    start = datetime.datetime(2026, 1, 15, 12, 0, 0)
+    state = {"daily_stored": 100, "day_start_time": start}
     with caplog.at_level(logging.INFO, logger="alertingest.ingester"):
-        worker._check_daily_reset(86400.0, state)
+        worker._check_daily_reset(start + datetime.timedelta(days=1), state)
     assert state["daily_stored"] == 0
-    assert state["day_start_time"] == 86400.0
+    assert state["day_start_time"] == start + datetime.timedelta(days=1)
     assert "100" in caplog.text
 
 
 def test_check_daily_reset_multiple_rollovers(caplog):
-    """When more than 86400*2 seconds pass, rolls over twice and advances
+    """When more than 48 hours pass, rolls over twice and advances
     day_start_time correctly."""
     worker = _make_worker()
-    state = {"daily_stored": 50, "day_start_time": 0.0}
+    start = datetime.datetime(2026, 1, 15, 12, 0, 0)
+    state = {"daily_stored": 50, "day_start_time": start}
     with caplog.at_level(logging.INFO, logger="alertingest.ingester"):
-        worker._check_daily_reset(86400.0 * 2 + 1, state)
+        worker._check_daily_reset(start + datetime.timedelta(days=2, seconds=1), state)
     assert state["daily_stored"] == 0
-    assert state["day_start_time"] == 86400.0 * 2
+    assert state["day_start_time"] == start + datetime.timedelta(days=2)
 
 
 def test_check_idle_prefixes_not_idle(caplog):
@@ -107,7 +109,7 @@ def test_check_idle_prefixes_not_idle(caplog):
 
 
 def test_check_idle_prefixes_logs_idle_prefix(caplog):
-    """A prefix idle longer than prefix_idle_timeout is logged once."""
+    """A prefix idle longer than prefix_idle_timeout is logged and retired."""
     worker = _make_worker()
     prefix_counts = {"123456": 7}
     prefix_last_write = {"123456": 0.0}
@@ -117,6 +119,8 @@ def test_check_idle_prefixes_logs_idle_prefix(caplog):
     assert "123456" in caplog.text
     assert "7" in caplog.text
     assert "123456" in logged
+    assert "123456" not in prefix_counts
+    assert "123456" not in prefix_last_write
 
 
 def test_check_idle_prefixes_skips_already_logged(caplog):

@@ -90,15 +90,11 @@ class KafkaConnectionParams:
         )
 
 
-def _seconds_since_last_noon() -> float:
-    """Return the number of seconds elapsed since the most recent noon (12:00
-    local server time)."""
+def _last_noon() -> datetime.datetime:
+    """Return the most recent noon (12:00 local server time) as a datetime."""
     now = datetime.datetime.now()
     today_noon = now.replace(hour=12, minute=0, second=0, microsecond=0)
-    last_noon = (
-        today_noon if now >= today_noon else today_noon - datetime.timedelta(days=1)
-    )
-    return (now - last_noon).total_seconds()
+    return today_noon if now >= today_noon else today_noon - datetime.timedelta(days=1)
 
 
 class IngestWorker:
@@ -159,8 +155,7 @@ class IngestWorker:
                 "last_message_time": asyncio.get_event_loop().time(),
                 "new_messages": True,  # Check if we are reading new messages
                 "daily_stored": 0,  # Alerts written to S3 in the current 24h period
-                "day_start_time": asyncio.get_event_loop().time()
-                - _seconds_since_last_noon(),  # Aligned to most recent noon
+                "day_start_time": _last_noon(),  # Aligned to most recent noon
                 "prefix_counts": {},  # Per-prefix alert counts {prefix: count}
                 "prefix_last_write": {},  # Per-prefix last write timestamp {prefix: time}
                 "logged_prefixes": deque(
@@ -195,9 +190,7 @@ class IngestWorker:
                         logger.info(
                             "Alerts stored today: %s", state_tracker["daily_stored"]
                         )
-                        self._check_daily_reset(
-                            asyncio.get_event_loop().time(), state_tracker
-                        )
+                        self._check_daily_reset(datetime.datetime.now(), state_tracker)
 
                     # Check message limit
                     if limit > 0 and state_tracker["limit_n"] >= limit:
@@ -231,7 +224,7 @@ class IngestWorker:
                         state_tracker["prefix_last_write"],
                         state_tracker["logged_prefixes"],
                     )
-                    self._check_daily_reset(current_time, state_tracker)
+                    self._check_daily_reset(datetime.datetime.now(), state_tracker)
 
         except Exception as e:
             logger.error("Error during message processing: %s", e)
@@ -467,6 +460,8 @@ class IngestWorker:
                     idle_seconds,
                 )
                 logged_prefixes.append(prefix)
+                del prefix_counts[prefix]
+                del prefix_last_write[prefix]
 
     def _check_daily_reset(self, current_time, state_tracker):
         """Log and reset the daily alert counter when 24 hours have elapsed.
@@ -478,12 +473,12 @@ class IngestWorker:
 
         Parameters
         ----------
-        current_time : float
-            Current event-loop time in seconds.
+        current_time : datetime.datetime
+            Current time.
         state_tracker : dict
             The run-loop state dictionary (mutated in place).
         """
-        one_day = 86400
+        one_day = datetime.timedelta(days=1)
         while current_time - state_tracker["day_start_time"] >= one_day:
             logger.info(
                 "Alerts stored to S3 in the last 24 hours: %d",
