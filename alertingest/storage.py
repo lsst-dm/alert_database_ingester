@@ -117,7 +117,7 @@ class USDFObjectStorageBackend(AlertDatabaseBackend):
         else:
             alert_key = f"{VERSION}/alerts/{alert_prefix}/{alert_id_str}.avro"
 
-        logging.info(
+        logging.debug(
             "Storing alert to bucket: %s, path: %s", self.packet_bucket, alert_key
         )
 

@@ -3,12 +3,14 @@ A worker which copies alerts and schemas into an object store backend.
 """
 
 import asyncio
+import datetime
 import io
 import logging
 import ssl
 import struct
+from collections import deque
 from dataclasses import dataclass
-from typing import Tuple
+from typing import Any, Dict, Tuple
 
 from aiokafka import AIOKafkaConsumer, ConsumerRecord
 from aiokafka.helpers import create_ssl_context
@@ -88,6 +90,13 @@ class KafkaConnectionParams:
         )
 
 
+def _last_noon() -> datetime.datetime:
+    """Return the most recent noon (12:00 local server time) as a datetime."""
+    now = datetime.datetime.now()
+    today_noon = now.replace(hour=12, minute=0, second=0, microsecond=0)
+    return today_noon if now >= today_noon else today_noon - datetime.timedelta(days=1)
+
+
 class IngestWorker:
     def __init__(
         self,
@@ -96,6 +105,8 @@ class IngestWorker:
         registry: SchemaRegistryClient,
         message_timeout: int = 1800,
         log_check_timeout: int = 3600,
+        prefix_idle_timeout: int = 7600,
+        max_logged_prefixes: int = 30,
     ):
         """Copies Rubin alert data from a Kafka broker to a database backend,
         using a schema registry to make sense of the alert data.
@@ -107,6 +118,8 @@ class IngestWorker:
         self.schema_registry = registry
         self.message_timeout = message_timeout
         self.log_check_timeout = log_check_timeout
+        self.prefix_idle_timeout = prefix_idle_timeout
+        self.max_logged_prefixes = max_logged_prefixes
 
     async def run(
         self,
@@ -136,17 +149,24 @@ class IngestWorker:
 
         try:
             # Combine all state information together to make things clearer
-            state_tracker = {
+            state_tracker: Dict[str, Any] = {
                 "commit_interval_counter": 0,  # Counter used to keep track of the submit interval
                 "limit_n": 0,  # Counts messages if we are limiting number to send.
                 "last_message_time": asyncio.get_event_loop().time(),
                 "new_messages": True,  # Check if we are reading new messages
+                "daily_stored": 0,  # Alerts written to S3 in the current 24h period
+                "day_start_time": _last_noon(),  # Aligned to most recent noon
+                "prefix_counts": {},  # Per-prefix alert counts {prefix: count}
+                "prefix_last_write": {},  # Per-prefix last write timestamp {prefix: time}
+                "logged_prefixes": deque(
+                    maxlen=self.max_logged_prefixes
+                ),  # Prefixes whose idle summaries have been logged (max 30)
             }
 
             logger.info("Ingest worker run loop start.")
             while True:
                 try:
-                    logger.info("Waiting for message.")
+                    logger.debug("Waiting for message.")
                     msg = await asyncio.wait_for(
                         consumer.__anext__(), timeout=self.message_timeout
                     )
@@ -167,6 +187,10 @@ class IngestWorker:
                                 consumer, state_tracker["commit_interval_counter"]
                             )
                         )
+                        logger.info(
+                            "Alerts stored today: %s", state_tracker["daily_stored"]
+                        )
+                        self._check_daily_reset(datetime.datetime.now(), state_tracker)
 
                     # Check message limit
                     if limit > 0 and state_tracker["limit_n"] >= limit:
@@ -174,6 +198,7 @@ class IngestWorker:
                         await self.handle_commit(
                             consumer, state_tracker["commit_interval_counter"]
                         )
+                        self._log_final_summary(state_tracker)
                         return
 
                 except asyncio.TimeoutError:
@@ -193,6 +218,13 @@ class IngestWorker:
                         state_tracker["commit_interval_counter"],
                         state_tracker["new_messages"],
                     )
+                    self._check_idle_prefixes(
+                        current_time,
+                        state_tracker["prefix_counts"],
+                        state_tracker["prefix_last_write"],
+                        state_tracker["logged_prefixes"],
+                    )
+                    self._check_daily_reset(datetime.datetime.now(), state_tracker)
 
         except Exception as e:
             logger.error("Error during message processing: %s", e)
@@ -211,6 +243,11 @@ class IngestWorker:
         worker,
         new_messages,
         limit=-1,
+        daily_stored=0,
+        day_start_time=None,
+        prefix_counts=None,
+        prefix_last_write=None,
+        logged_prefixes=None,
     ):
         """Process a single Kafka message.
 
@@ -240,8 +277,15 @@ class IngestWorker:
             than 1, we do not track the number of messages processed.
 
         """
+        if prefix_counts is None:
+            prefix_counts = {}
+        if prefix_last_write is None:
+            prefix_last_write = {}
+        if logged_prefixes is None:
+            logged_prefixes = deque(maxlen=self.max_logged_prefixes)
+
         try:
-            worker.handle_kafka_message(msg)
+            alert_id = worker.handle_kafka_message(msg)
         except Exception as e:
             logger.error("Error processing message at offset %s: %s", msg.offset, e)
             logger.exception("full traceback")
@@ -252,11 +296,22 @@ class IngestWorker:
             limit_n += 1
         will_return = True if msg else new_messages
 
+        now = asyncio.get_event_loop().time()
+        daily_stored += 1
+        alert_prefix = str(alert_id)[:6]
+        prefix_counts[alert_prefix] = prefix_counts.get(alert_prefix, 0) + 1
+        prefix_last_write[alert_prefix] = now
+
         return {
-            "last_message_time": asyncio.get_event_loop().time(),
+            "last_message_time": now,
             "commit_interval_counter": commit_interval_counter + 1,
             "limit_n": limit_n,
             "new_messages": will_return,
+            "daily_stored": daily_stored,
+            "day_start_time": day_start_time,
+            "prefix_counts": prefix_counts,
+            "prefix_last_write": prefix_last_write,
+            "logged_prefixes": logged_prefixes,
         }
 
     async def handle_commit(self, consumer, commit_interval_counter):
@@ -374,6 +429,85 @@ class IngestWorker:
             logger.warning("Error checking partition %s: %s", partition, e)
             return False
 
+    def _check_idle_prefixes(
+        self, current_time, prefix_counts, prefix_last_write, logged_prefixes
+    ):
+        """Log a summary for any alert prefix that has been idle for a number
+        of seconds.
+
+        Parameters
+        ----------
+        current_time : float
+            Current time in seconds.
+        prefix_counts : dict
+           Count of alerts stored under a specific prefix.
+        prefix_last_write : dict
+            Time last alert was written for a specific prefix in seconds.
+        logged_prefixes : set
+            Set of prefixes whose idle summaries have already logged.
+            Updated in-place as new summaries are logged.
+        """
+        for prefix in list(prefix_counts):
+            if prefix in logged_prefixes:
+                continue
+            idle_seconds = current_time - prefix_last_write[prefix]
+            if idle_seconds >= self.prefix_idle_timeout:
+                logger.info(
+                    "Alert prefix %s: %d alert(s) stored to S3 "
+                    "(no new alerts for %.0f seconds for this prefix.)",
+                    prefix,
+                    prefix_counts[prefix],
+                    idle_seconds,
+                )
+                logged_prefixes.append(prefix)
+                del prefix_counts[prefix]
+                del prefix_last_write[prefix]
+
+    def _check_daily_reset(self, current_time, state_tracker):
+        """Log and reset the daily alert counter when 24 hours have elapsed.
+
+        If at least 86400 seconds have passed since ``day_start_time``, emits
+        an INFO log with the count for that window, resets ``daily_stored`` to
+        0, and advances ``day_start_time`` by 86400 seconds so consecutive
+        rollovers are handled correctly.
+
+        Parameters
+        ----------
+        current_time : datetime.datetime
+            Current time.
+        state_tracker : dict
+            The run-loop state dictionary (mutated in place).
+        """
+        one_day = datetime.timedelta(days=1)
+        while current_time - state_tracker["day_start_time"] >= one_day:
+            logger.info(
+                "Alerts stored to S3 in the last 24 hours: %d",
+                state_tracker["daily_stored"],
+            )
+            state_tracker["daily_stored"] = 0
+            state_tracker["day_start_time"] += one_day
+
+    def _log_final_summary(self, state_tracker):
+        """Log the current-period alert count and per-prefix summaries for any
+        prefix not yet reported.
+
+        Parameters
+        ----------
+        state_tracker : dict
+            The run-loop state dictionary.
+        """
+        logger.info(
+            "Alerts stored to S3 in current period: %d",
+            state_tracker["daily_stored"],
+        )
+        for prefix, count in state_tracker["prefix_counts"].items():
+            if prefix not in state_tracker["logged_prefixes"]:
+                logger.info(
+                    "Alert prefix %s: %d alert(s) stored to S3",
+                    prefix,
+                    count,
+                )
+
     def _create_consumer(self, auto_offset_reset: str = "latest"):
         if self.kafka_params.auth_mechanism == "scram":
             return self._create_scram_consumer(auto_offset_reset)
@@ -444,6 +578,7 @@ class IngestWorker:
         logger.debug("Storing alert %s to backend.", alert_id)
         self.backend.store_alert(alert_id, raw_msg)
         logger.debug("Alert %s stored successfully.", alert_id)
+        return alert_id
 
     def _parse_alert_msg(self, raw_msg: bytes) -> Tuple[int, int]:
         # return schema_id, alert_id from alert payload

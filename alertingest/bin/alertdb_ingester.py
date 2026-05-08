@@ -123,6 +123,21 @@ def main():
         default=3600,
         help="Timeout in seconds for waiting for new messages (default: 3600)",
     )
+    parser.add_argument(
+        "--prefix-idle-timeout",
+        type=int,
+        default=300,
+        help=(
+            "Seconds of inactivity for an alert prefix before logging a "
+            "per-prefix alert count summary (default: 7200)"
+        ),
+    )
+    parser.add_argument(
+        "--max-logged-prefixes",
+        type=int,
+        default=30,
+        help="Maximum number of idle-prefix summaries to remember (default: 30)",
+    )
 
     args = parser.parse_args()
 
@@ -166,5 +181,7 @@ def main():
         registry,
         message_timeout=args.message_timeout,
         log_check_timeout=args.log_check_timeout,
+        prefix_idle_timeout=args.prefix_idle_timeout,
+        max_logged_prefixes=args.max_logged_prefixes,
     )
     asyncio.get_event_loop().run_until_complete(worker.run())
