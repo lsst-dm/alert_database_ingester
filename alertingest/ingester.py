@@ -3,6 +3,7 @@ A worker which copies alerts and schemas into an object store backend.
 """
 
 import asyncio
+import concurrent.futures
 import datetime
 import io
 import logging
@@ -120,12 +121,17 @@ class IngestWorker:
         self.log_check_timeout = log_check_timeout
         self.prefix_idle_timeout = prefix_idle_timeout
         self.max_logged_prefixes = max_logged_prefixes
+        self._executor: concurrent.futures.ThreadPoolExecutor | None = None
+        # We have to use this because S#/boto3 and the schema registry
+        # are synchronous and we need to use them in an async context
 
     async def run(
         self,
         limit: int = -1,
         commit_interval: int = 100,
         auto_offset_reset: str = "latest",
+        batch_size: int = 20,
+        commit_timeout: int = 600,
     ):
         """Run the consumer, copying messages from Kafka to the IngestWorker's
         backend.
@@ -136,14 +142,26 @@ class IngestWorker:
             Maximum number of messages to copy. If this value is less than 1,
             no limit is used. The default is -1.
         commit_interval : int
-            Interval (measured in messages) between committing the offset of
-            the worker. Higher values will require more repeated work if the
-            IngestWorker crashes or backends are unavailable, while lower
-            values will cost more overhead communicating with Kafka.
+            Minimum number of messages between offset commits. Commits are
+            aligned to batch boundaries, so the actual interval is between
+            commit_interval and commit_interval + batch_size messages. Higher
+            values will require more repeated work if the IngestWorker crashes
+            or backends are unavailable, while lower values will cost more
+            overhead communicating with Kafka.
         auto_offset_reset : str
             When reading from a new topic, where should the worker start?
             Options are "latest" and "earliest".
+        batch_size : int
+            Maximum number of messages to fetch and process concurrently per
+            loop iteration. Higher values increase throughput at the cost of
+            more memory and thread-pool workers. The default is 20.
+        commit_timeout : int
+            Maximum seconds to hold uncommitted offsets. If this many seconds
+            pass since the last commit and there are pending messages, a commit
+            is forced regardless of commit_interval. The default is 600 (10
+            minutes).
         """
+        self._executor = concurrent.futures.ThreadPoolExecutor(max_workers=batch_size)
         consumer = self._create_consumer(auto_offset_reset)
         await consumer.start()
 
@@ -161,53 +179,22 @@ class IngestWorker:
                 "logged_prefixes": deque(
                     maxlen=self.max_logged_prefixes
                 ),  # Prefixes whose idle summaries have been logged (max 30)
+                "last_commit_time": asyncio.get_event_loop().time(),  # Time of the last commit
             }
 
             logger.info("Ingest worker run loop start.")
             while True:
-                try:
-                    logger.debug("Waiting for message.")
-                    msg = await asyncio.wait_for(
-                        consumer.__anext__(), timeout=self.message_timeout
-                    )
+                logger.debug("Waiting for messages.")
+                batch = await consumer.getmany(
+                    max_records=batch_size,
+                    timeout_ms=self.message_timeout * 1000,
+                )
+                msgs = [msg for msgs in batch.values() for msg in msgs]
 
-                    # Process messages and update the state tracker. Will set
-                    # new_messages to True if new messages have been read.
-                    state_tracker.update(
-                        await self.process_message(
-                            msg, consumer, **state_tracker, worker=self, limit=limit
-                        )
-                    )
-
-                    # Check if the commit_interval has been reached and submit
-                    # messages if it has
-                    if state_tracker["commit_interval_counter"] == commit_interval:
-                        state_tracker["commit_interval_counter"] = (
-                            await self.handle_commit(
-                                consumer, state_tracker["commit_interval_counter"]
-                            )
-                        )
-                        logger.info(
-                            "Alerts stored today: %s", state_tracker["daily_stored"]
-                        )
-                        self._check_daily_reset(datetime.datetime.now(), state_tracker)
-
-                    # Check message limit
-                    if limit > 0 and state_tracker["limit_n"] >= limit:
-                        logger.info("limit reached - returning")
-                        await self.handle_commit(
-                            consumer, state_tracker["commit_interval_counter"]
-                        )
-                        self._log_final_summary(state_tracker)
-                        return
-
-                except asyncio.TimeoutError:
+                if not msgs:
                     logger.info("Waiting timed out, checking for new messages...")
-                    # Check if we are reading new messages. If new messages
-                    # is set to false, don't try and read the partitions.
-                    # If new messages is set to true, we will try and read
-                    # any remaining messages from the partitions.
                     current_time = asyncio.get_event_loop().time()
+                    prev_counter = state_tracker["commit_interval_counter"]
                     (
                         state_tracker["new_messages"],
                         state_tracker["commit_interval_counter"],
@@ -218,6 +205,11 @@ class IngestWorker:
                         state_tracker["commit_interval_counter"],
                         state_tracker["new_messages"],
                     )
+                    if (
+                        prev_counter > 0
+                        and state_tracker["commit_interval_counter"] == 0
+                    ):
+                        state_tracker["last_commit_time"] = current_time
                     self._check_idle_prefixes(
                         current_time,
                         state_tracker["prefix_counts"],
@@ -225,6 +217,85 @@ class IngestWorker:
                         state_tracker["logged_prefixes"],
                     )
                     self._check_daily_reset(datetime.datetime.now(), state_tracker)
+                    continue
+
+                # Process all messages in the batch concurrently; each fires
+                # its S3 write into the thread pool via run_in_executor.
+                results = await asyncio.gather(
+                    *[self.handle_kafka_message(msg) for msg in msgs],
+                    return_exceptions=True,
+                )
+
+                # Log per-message errors before updating state, then re-raise.
+                first_exc = None
+                for msg, result in zip(msgs, results):
+                    if isinstance(result, BaseException):
+                        logger.error(
+                            "Error processing message at offset %s: %s",
+                            msg.offset,
+                            result,
+                        )
+                        if first_exc is None:
+                            first_exc = result
+                if first_exc is not None:
+                    raise first_exc
+
+                # Update state for the whole batch.
+                now = asyncio.get_event_loop().time()
+                n = len(msgs)
+                state_tracker["last_message_time"] = now
+                state_tracker["new_messages"] = True
+                state_tracker["commit_interval_counter"] += n
+                state_tracker["daily_stored"] += n
+                if limit > 0:
+                    state_tracker["limit_n"] += n
+
+                for alert_id in results:
+                    alert_prefix = str(alert_id)[:6]
+                    state_tracker["prefix_counts"][alert_prefix] = (
+                        state_tracker["prefix_counts"].get(alert_prefix, 0) + 1
+                    )
+                    state_tracker["prefix_last_write"][alert_prefix] = now
+
+                # Commit when interval threshold is reached or exceeded.
+                if state_tracker["commit_interval_counter"] >= commit_interval:
+                    state_tracker["commit_interval_counter"] = await self.handle_commit(
+                        consumer, state_tracker["commit_interval_counter"]
+                    )
+                    state_tracker["last_commit_time"] = now
+                    logger.info(
+                        "Alerts stored today: %s", state_tracker["daily_stored"]
+                    )
+                    self._check_daily_reset(datetime.datetime.now(), state_tracker)
+                elif (
+                    state_tracker["commit_interval_counter"] > 0
+                    and now - state_tracker["last_commit_time"] >= commit_timeout
+                ):
+                    logger.info(
+                        "No commit in %s seconds, committing %s pending messages.",
+                        commit_timeout,
+                        state_tracker["commit_interval_counter"],
+                    )
+                    state_tracker["commit_interval_counter"] = await self.handle_commit(
+                        consumer, state_tracker["commit_interval_counter"]
+                    )
+                    state_tracker["last_commit_time"] = now
+
+                # Check message limit.
+                if limit > 0 and state_tracker["limit_n"] >= limit:
+                    logger.info("limit reached - returning")
+                    await self.handle_commit(
+                        consumer, state_tracker["commit_interval_counter"]
+                    )
+                    self._log_final_summary(state_tracker)
+                    return
+
+        except asyncio.CancelledError:
+            logger.warning(
+                "Shutdown signal received, committing pending offsets before exit."
+            )
+            await self.handle_commit(consumer, state_tracker["commit_interval_counter"])
+            raise
 
         except Exception as e:
             logger.error("Error during message processing: %s", e)
@@ -232,87 +303,8 @@ class IngestWorker:
 
         finally:
             await consumer.stop()
-
-    async def process_message(
-        self,
-        msg,
-        consumer,
-        last_message_time,
-        commit_interval_counter,
-        limit_n,
-        worker,
-        new_messages,
-        limit=-1,
-        daily_stored=0,
-        day_start_time=None,
-        prefix_counts=None,
-        prefix_last_write=None,
-        logged_prefixes=None,
-    ):
-        """Process a single Kafka message.
-
-        The function reads a single kafka message and updates the state
-        tracker.
-
-        Parameters
-        ----------
-        commit_interval_counter: int
-            The number of messages since the last commit.
-
-        limit_n : int
-            Counts the number of messages which have been processed
-            since the last commit. Will commit once the required number
-            of messages has been reached and end the loop. Not tracked if
-            limit is less than 1.
-
-        worker : IngestWorker
-            The ingester worker which is handling the message.
-
-        new_messages : bool
-            Track if we have received new messages, but keep the current state
-            (to be updated upon timeout) if we have not.
-
-        limit : int
-            The maximum number of messages to process. If this value is less
-            than 1, we do not track the number of messages processed.
-
-        """
-        if prefix_counts is None:
-            prefix_counts = {}
-        if prefix_last_write is None:
-            prefix_last_write = {}
-        if logged_prefixes is None:
-            logged_prefixes = deque(maxlen=self.max_logged_prefixes)
-
-        try:
-            alert_id = worker.handle_kafka_message(msg)
-        except Exception as e:
-            logger.error("Error processing message at offset %s: %s", msg.offset, e)
-            logger.exception("full traceback")
-            raise
-
-        logger.debug("handle complete")
-        if limit > 0:
-            limit_n += 1
-        will_return = True if msg else new_messages
-
-        now = asyncio.get_event_loop().time()
-        daily_stored += 1
-        alert_prefix = str(alert_id)[:6]
-        prefix_counts[alert_prefix] = prefix_counts.get(alert_prefix, 0) + 1
-        prefix_last_write[alert_prefix] = now
-
-        return {
-            "last_message_time": now,
-            "commit_interval_counter": commit_interval_counter + 1,
-            "limit_n": limit_n,
-            "new_messages": will_return,
-            "daily_stored": daily_stored,
-            "day_start_time": day_start_time,
-            "prefix_counts": prefix_counts,
-            "prefix_last_write": prefix_last_write,
-            "logged_prefixes": logged_prefixes,
-        }
+            self._executor.shutdown(wait=True)
+            self._executor = None
 
     async def handle_commit(self, consumer, commit_interval_counter):
         """Handle committing of consumer offsets.
@@ -545,7 +537,7 @@ class IngestWorker:
         consumer.subscribe(topics=self.kafka_params.topics)
         return consumer
 
-    def handle_kafka_message(self, msg: ConsumerRecord):
+    async def handle_kafka_message(self, msg: ConsumerRecord):
         """Handle a single Kafka message.
 
         Parses out the schema ID and alert ID from the message. Stores the
@@ -564,19 +556,32 @@ class IngestWorker:
             msg.partition,
             msg.offset,
         )
+        loop = asyncio.get_running_loop()
         raw_msg = msg.value
-        schema_id, alert_id = self._parse_alert_msg(raw_msg)
+
+        # _parse_alert_msg may fetch from the schema registry on first call
+        schema_id, alert_id = await loop.run_in_executor(
+            self._executor, self._parse_alert_msg, raw_msg
+        )
         logger.debug("Parsed message: schema_id=%s, alert_id=%s", schema_id, alert_id)
 
-        if not self.backend.schema_exists(schema_id):
+        if not await loop.run_in_executor(
+            self._executor, self.backend.schema_exists, schema_id
+        ):
             logger.info("%s is a new schema ID - storing it", schema_id)
-            encoded_schema = self.schema_registry.get_raw_schema(schema_id)
-            self.backend.store_schema(schema_id, encoded_schema)
+            encoded_schema = await loop.run_in_executor(
+                self._executor, self.schema_registry.get_raw_schema, schema_id
+            )
+            await loop.run_in_executor(
+                self._executor, self.backend.store_schema, schema_id, encoded_schema
+            )
         else:
             logger.debug("Schema %s already exists, skipping storage", schema_id)
 
         logger.debug("Storing alert %s to backend.", alert_id)
-        self.backend.store_alert(alert_id, raw_msg)
+        await loop.run_in_executor(
+            self._executor, self.backend.store_alert, alert_id, raw_msg
+        )
         logger.debug("Alert %s stored successfully.", alert_id)
         return alert_id
 
