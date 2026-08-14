@@ -1,7 +1,8 @@
+import asyncio
 import datetime
 import logging
 from collections import deque
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -180,3 +181,133 @@ def test_confluent_wire_format_parsing():
     data = b"\x00\x00\x00\x00\x04\xd3"
     have = _read_confluent_wire_format_header(data)
     assert have == 4
+
+
+def _make_msg(offset=0):
+    """Return a minimal mock ConsumerRecord."""
+    msg = MagicMock()
+    msg.offset = offset
+    msg.topic = "test-topic"
+    msg.partition = 0
+    return msg
+
+
+def _make_consumer(batches):
+    """Return a mock aiokafka consumer whose getmany yields successive batches.
+
+    Each element of `batches` is a dict that will be returned by one
+    getmany() call. An empty dict simulates a timeout (no messages).
+    """
+    consumer = MagicMock()
+    consumer.getmany = AsyncMock(side_effect=batches)
+    consumer.start = AsyncMock()
+    consumer.stop = AsyncMock()
+    consumer.commit = AsyncMock()
+    consumer.assignment.return_value = []  # skip per-partition logging in
+    # handle_commit
+    return consumer
+
+
+def test_run_processes_full_batch():
+    """All messages in a batch are passed to handle_kafka_message."""
+    worker = _make_worker()
+    msgs = [_make_msg(offset=i) for i in range(3)]
+    consumer = _make_consumer(batches=[{"tp": msgs}])
+    worker._create_consumer = MagicMock(return_value=consumer)
+    worker.handle_kafka_message = AsyncMock(side_effect=[100000, 200000, 300000])
+
+    asyncio.run(worker.run(limit=3, commit_interval=100))
+
+    assert worker.handle_kafka_message.call_count == 3
+    consumer.start.assert_awaited_once()
+    consumer.stop.assert_awaited_once()
+
+
+def test_run_state_updated_for_batch():
+    """daily_stored increments by the full batch size."""
+    worker = _make_worker()
+    msgs = [_make_msg(offset=i) for i in range(4)]
+    consumer = _make_consumer(batches=[{"tp": msgs}])
+    worker._create_consumer = MagicMock(return_value=consumer)
+    # Use alert IDs with distinct 6-char prefixes to produce two prefix
+    # buckets.
+    worker.handle_kafka_message = AsyncMock(
+        side_effect=[111111000, 111111001, 222222000, 222222001]
+    )
+
+    # Capture state by hooking _log_final_summary (called when limit is hit).
+    captured = {}
+    original = worker._log_final_summary
+
+    def capture(state):
+        captured.update(state)
+        original(state)
+
+    worker._log_final_summary = capture
+
+    asyncio.run(worker.run(limit=4, commit_interval=100))
+
+    assert captured["daily_stored"] == 4
+    assert captured["prefix_counts"]["111111"] == 2
+    assert captured["prefix_counts"]["222222"] == 2
+
+
+def test_run_empty_batch_invokes_process_timeout():
+    """An empty getmany result (timeout) calls process_timeout."""
+    worker = _make_worker()
+    msg = _make_msg()
+    consumer = _make_consumer(batches=[{}, {"tp": [msg]}])
+    worker._create_consumer = MagicMock(return_value=consumer)
+    worker.handle_kafka_message = AsyncMock(return_value=123456789)
+    worker.process_timeout = AsyncMock(return_value=(False, 0))
+
+    asyncio.run(worker.run(limit=1, commit_interval=100))
+
+    worker.process_timeout.assert_awaited_once()
+
+
+def test_run_batch_error_is_logged_and_reraised(caplog):
+    """A failing message is logged with its offset and the exception
+    propagates."""
+    worker = _make_worker()
+    msgs = [_make_msg(offset=0), _make_msg(offset=7)]
+    consumer = _make_consumer(batches=[{"tp": msgs}])
+    worker._create_consumer = MagicMock(return_value=consumer)
+    exc = ValueError("bad alert")
+    worker.handle_kafka_message = AsyncMock(side_effect=[123456789, exc])
+
+    with caplog.at_level(logging.ERROR, logger="alertingest.ingester"):
+        with pytest.raises(ValueError, match="bad alert"):
+            asyncio.run(worker.run(limit=10, commit_interval=100))
+
+    assert "offset 7" in caplog.text
+
+
+def test_run_commits_when_interval_reached():
+    """Commit fires when commit_interval_counter meets or exceeds the
+    threshold."""
+    worker = _make_worker()
+    msgs = [_make_msg(offset=i) for i in range(5)]
+    consumer = _make_consumer(batches=[{"tp": msgs}])
+    worker._create_consumer = MagicMock(return_value=consumer)
+    worker.handle_kafka_message = AsyncMock(side_effect=list(range(100000, 100005)))
+
+    asyncio.run(worker.run(limit=5, commit_interval=3))
+
+    consumer.commit.assert_awaited()
+
+
+def test_run_commits_on_commit_timeout():
+    """Commit fires when commit_timeout seconds elapse since the last commit,
+    even if commit_interval hasn't been reached."""
+    worker = _make_worker()
+    msgs = [_make_msg(offset=i) for i in range(2)]
+    consumer = _make_consumer(batches=[{"tp": msgs}])
+    worker._create_consumer = MagicMock(return_value=consumer)
+    worker.handle_kafka_message = AsyncMock(side_effect=[100000, 200000])
+
+    # commit_interval=10 means the count-based commit won't fire for 2 messages
+    # commit_timeout=0 ensures any elapsed time triggers a time-based commit
+    asyncio.run(worker.run(limit=2, commit_interval=10, commit_timeout=0))
+
+    consumer.commit.assert_awaited()

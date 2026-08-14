@@ -2,6 +2,7 @@ import argparse
 import asyncio
 import logging
 import os
+import signal
 
 from alertingest.ingester import IngestWorker, KafkaConnectionParams
 from alertingest.schema_registry import SchemaRegistryClient
@@ -138,6 +139,40 @@ def main():
         default=30,
         help="Maximum number of idle-prefix summaries to remember (default: 30)",
     )
+    parser.add_argument(
+        "--batch-size",
+        type=int,
+        default=20,
+        help="Maximum messages to fetch and process concurrently per loop iteration (default: 20)",
+    )
+    parser.add_argument(
+        "--commit-timeout",
+        type=int,
+        default=600,
+        help=(
+            "Maximum seconds to hold uncommitted offsets before forcing a commit, "
+            "regardless of commit interval (default: 600)"
+        ),
+    )
+    parser.add_argument(
+        "--commit-interval",
+        type=int,
+        default=100,
+        help="Minimum number of messages between offset commits (default: 100)",
+    )
+    parser.add_argument(
+        "--limit",
+        type=int,
+        default=-1,
+        help="Maximum number of messages to copy; -1 means no limit (default: -1)",
+    )
+    parser.add_argument(
+        "--auto-offset-reset",
+        type=str,
+        choices=("latest", "earliest"),
+        default="latest",
+        help="Where to start reading when joining a new topic (default: latest)",
+    )
 
     args = parser.parse_args()
 
@@ -184,4 +219,37 @@ def main():
         prefix_idle_timeout=args.prefix_idle_timeout,
         max_logged_prefixes=args.max_logged_prefixes,
     )
-    asyncio.get_event_loop().run_until_complete(worker.run())
+    asyncio.run(
+        _run_worker(
+            worker,
+            batch_size=args.batch_size,
+            commit_timeout=args.commit_timeout,
+            commit_interval=args.commit_interval,
+            limit=args.limit,
+            auto_offset_reset=args.auto_offset_reset,
+        )
+    )
+
+
+async def _run_worker(
+    worker,
+    batch_size=20,
+    commit_timeout=600,
+    commit_interval=100,
+    limit=-1,
+    auto_offset_reset="latest",
+):
+    loop = asyncio.get_running_loop()
+    task = asyncio.current_task()
+    for sig in (signal.SIGTERM, signal.SIGINT):
+        loop.add_signal_handler(sig, task.cancel)
+    try:
+        await worker.run(
+            batch_size=batch_size,
+            commit_timeout=commit_timeout,
+            commit_interval=commit_interval,
+            limit=limit,
+            auto_offset_reset=auto_offset_reset,
+        )
+    except asyncio.CancelledError:
+        pass
